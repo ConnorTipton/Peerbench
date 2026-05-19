@@ -69,9 +69,6 @@ data/cdr_bulk/
 # The FDIC field reference XLSX is re-downloadable; the grep-able CSV is committed.
 data/fdic_field_reference.xlsx
 
-# Transient handoff notes between Claude Code sessions.
-HANDOFF.md
-
 # Generated Excel exports from `uv run peerbench export`
 output/
 
