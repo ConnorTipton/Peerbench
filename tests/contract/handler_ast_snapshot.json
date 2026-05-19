@@ -1,122 +1,122 @@
 {
   "acl_loans": {
-    "ast_hash": "99671797f3c2c76a",
+    "ast_hash": "f1bf49963a6390ff",
     "version": "v1"
   },
   "acl_npl": {
-    "ast_hash": "4fee90526f3c5993",
+    "ast_hash": "e4305c62bed6e596",
     "version": "v1"
   },
   "brokered_dep": {
-    "ast_hash": "056536fa652c836a",
+    "ast_hash": "86933717aafa3cae",
     "version": "v1"
   },
   "cash_assets": {
-    "ast_hash": "e24edf9f574f6e66",
+    "ast_hash": "83f1c2db70a62e23",
     "version": "v1"
   },
   "cd_rbc": {
-    "ast_hash": "98acc542b9c26764",
+    "ast_hash": "8c034c3204c3f913",
     "version": "v1"
   },
   "cet1": {
-    "ast_hash": "e749db069ae32918",
+    "ast_hash": "2dfabcf51b8845b7",
     "version": "v1"
   },
   "cost_funds": {
-    "ast_hash": "7eacc969607e81d0",
+    "ast_hash": "300fe4931bb239a5",
     "version": "v1"
   },
   "cre_rbc": {
-    "ast_hash": "e7d86c437521c512",
+    "ast_hash": "5c6539c97f14e462",
     "version": "v1"
   },
   "deposits_liab": {
-    "ast_hash": "3b656475f326dc3c",
+    "ast_hash": "769d01b4e35c847f",
     "version": "v1"
   },
   "eff_ratio": {
-    "ast_hash": "c4f2ed582c4b5518",
+    "ast_hash": "8f75da79e9f277e0",
     "version": "v1"
   },
   "htm_loss_t1": {
-    "ast_hash": "c54ef95eaef706de",
+    "ast_hash": "d75b4a1c9bdcfeb0",
     "version": "v1"
   },
   "loans_assets": {
-    "ast_hash": "3c3bb5edbcffd86b",
+    "ast_hash": "4e82094423fdb0c1",
     "version": "v1"
   },
   "loans_deposits": {
-    "ast_hash": "be7dbb7d785cbbd5",
+    "ast_hash": "2c367e0e4fa940fd",
     "version": "v1"
   },
   "nco_ratio": {
-    "ast_hash": "b3d475d4512175f6",
+    "ast_hash": "025be51e61527605",
     "version": "v1"
   },
   "nim": {
-    "ast_hash": "34cc41e28db689df",
+    "ast_hash": "9a0cc389b5d2dece",
     "version": "v1"
   },
   "nis": {
-    "ast_hash": "cd8034a6dde0e63f",
+    "ast_hash": "79e779386668d764",
     "version": "v1"
   },
   "nonint_exp_assets": {
-    "ast_hash": "3d307ebbf74af2c5",
+    "ast_hash": "ce7eec6039c9277e",
     "version": "v1"
   },
   "nonint_inc_rev": {
-    "ast_hash": "2946a34e702e034f",
+    "ast_hash": "decd551038f5d48a",
     "version": "v1"
   },
   "npl_ratio": {
-    "ast_hash": "e7cfea06f8606d8f",
+    "ast_hash": "2fc5772cec5b6ea8",
     "version": "v1"
   },
   "ppnr_assets": {
-    "ast_hash": "75676755c2c7c8aa",
+    "ast_hash": "56e5f43e6f417969",
     "version": "v1"
   },
   "roa": {
-    "ast_hash": "6707304d9834478a",
+    "ast_hash": "f90f48e563171636",
     "version": "v1"
   },
   "roe": {
-    "ast_hash": "0410512c79b23186",
+    "ast_hash": "aa9fe3b1f7ea4c0a",
     "version": "v1"
   },
   "sec_assets": {
-    "ast_hash": "7d682bba5a23a0ec",
+    "ast_hash": "fde9b6b3141ad744",
     "version": "v1"
   },
   "tce_ta": {
-    "ast_hash": "7fa801604198541b",
+    "ast_hash": "e2dddb378a7791ac",
     "version": "v1"
   },
   "tier1_lev": {
-    "ast_hash": "fa7eb500f9f9b518",
+    "ast_hash": "100925511118f0b7",
     "version": "v1"
   },
   "tier1_rbc": {
-    "ast_hash": "5fd8cbb13a6d5d26",
+    "ast_hash": "3aaebcc0f92726cd",
     "version": "v1"
   },
   "top_loan_cat": {
-    "ast_hash": "311bbc0cbe650dcf",
+    "ast_hash": "f19016dcb3ea8163",
     "version": "v1"
   },
   "total_rbc": {
-    "ast_hash": "a246a505a2e99c14",
+    "ast_hash": "b7f4e27fb508b6c7",
     "version": "v1"
   },
   "uninsured_dep": {
-    "ast_hash": "8699231864438cb9",
+    "ast_hash": "f9625e30aae3f2f6",
     "version": "v1"
   },
   "yield_ea": {
-    "ast_hash": "eb99b0f45e12bced",
+    "ast_hash": "7c5a7e02c41f69bd",
     "version": "v1"
   }
 }

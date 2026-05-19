@@ -3,6 +3,7 @@
 Commands:
   peerbench seed-ratios     — Upsert data/ratios.csv into the ratio_defs table.
   peerbench ingest          — Fetch FDIC API facts for a bank-quarter.
+  peerbench compute         — Compute ratios for a bank-quarter and persist.
   peerbench info            — Quick sanity dump of registry + config.
 """
 
@@ -18,6 +19,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from peerbench.config import get_settings
 from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
+from peerbench.db.ratio_writer import upsert_ratio
 from peerbench.fdic_fields import all_fields
 from peerbench.ingest import FdicClient, upsert_fact
 from peerbench.quarters import (
@@ -27,6 +29,13 @@ from peerbench.quarters import (
 )
 from peerbench.ratio_defs_io import load_ratio_defs
 from peerbench.ratio_engine import registered_handlers
+from peerbench.ratio_engine.compute import (
+    OkResult,
+    PartialResult,
+    SuppressedResult,
+    compute_all_for_bank_quarter,
+    load_fact_view,
+)
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -165,6 +174,42 @@ def ingest(
                 f"  {qid}: {sum(1 for v in data.values() if v is not None)} fields with values"
             )
     typer.echo(f"done: {written} fact upserts across {len(qids)} quarter(s)")
+
+
+@app.command("compute")
+def compute(
+    cert: Annotated[int, typer.Option("--cert", help="FDIC certificate number")],
+    quarters: Annotated[
+        int, typer.Option("--quarters", help="How many most-recent quarters to compute")
+    ] = 1,
+) -> None:
+    """Compute ratios for one bank across N most-recent finalized quarters.
+
+    Reads `facts` for each (cert, quarter_id) plus the 4 preceding quarters
+    (5-period YTD averaging per FDIC convention), dispatches every ratio in
+    `ratio_defs`, and upserts the resulting Decimal/data_quality into the
+    `ratios` table.
+    """
+    qids = recent_finalized_quarters(quarters)
+    typer.echo(f"computing cert={cert} quarters={qids}")
+    handlers = registered_handlers()
+    with get_session() as session:
+        ratio_defs = list(session.scalars(select(RatioDef)).all())
+        if not ratio_defs:
+            typer.echo("no ratio_defs rows — run `peerbench seed-ratios` first.", err=True)
+            raise typer.Exit(code=2)
+        for qid in qids:
+            fact_view = load_fact_view(session, cert, qid, periods=5)
+            results = compute_all_for_bank_quarter(ratio_defs, fact_view)
+            for rid, result in results.items():
+                handler = handlers.get(rid)
+                version = handler.version if handler is not None else "unknown"
+                upsert_ratio(session, cert, qid, rid, result, version)
+            ok = sum(1 for r in results.values() if isinstance(r, OkResult))
+            partial = sum(1 for r in results.values() if isinstance(r, PartialResult))
+            sup = sum(1 for r in results.values() if isinstance(r, SuppressedResult))
+            typer.echo(f"  {qid}: {ok} ok, {partial} partial, {sup} suppressed")
+    typer.echo("done")
 
 
 @app.command("info")

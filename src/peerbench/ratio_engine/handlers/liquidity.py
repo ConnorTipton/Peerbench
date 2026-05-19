@@ -1,4 +1,8 @@
-"""Liquidity / deposit composition: uninsured_dep, brokered_dep, htm_loss_t1."""
+"""Liquidity / deposit composition: uninsured_dep, brokered_dep, htm_loss_t1.
+
+uninsured_dep and brokered_dep are FDIC-API-only. htm_loss_t1 needs FFIEC
+CDR Schedule RC-B Memorandum 2 (HTM fair value not exposed by the API).
+"""
 
 from __future__ import annotations
 
@@ -10,18 +14,20 @@ from peerbench.ratio_engine.registry import ratio
 
 @ratio("uninsured_dep", version="v1")
 def compute_uninsured_dep(f: FactView) -> Decimal:
-    # Day 3: DEPUNA / DEP (or fallback DEP - DEPINS / DEP for small peers).
-    raise NotImplementedError("uninsured_dep handler body lands Day 3")
+    # DEPUNA is self-reported by banks with ≥$1B in total assets; smaller
+    # banks will surface MissingFieldError -> PartialResult. Optional fallback
+    # computation DEP - DEPINS is a Day 4 refinement.
+    return f["DEPUNA"] / f["DEP"]
 
 
 @ratio("brokered_dep", version="v1")
 def compute_brokered_dep(f: FactView) -> Decimal:
-    # Day 3: BRO / DEP
-    raise NotImplementedError("brokered_dep handler body lands Day 3")
+    return f["BRO"] / f["DEP"]
 
 
 @ratio("htm_loss_t1", version="v1")
 def compute_htm_loss_t1(f: FactView) -> Decimal:
-    # Day 3: max(0, SCHA - HTM_FV) / RBCT1J. HTM fair value comes from
-    # FFIEC CDR RC-B Memorandum 2 — not in FDIC API.
-    raise NotImplementedError("htm_loss_t1 handler body lands Day 3")
+    # FDIC API exposes HTM amortized cost (SCHA) but not HTM fair value.
+    # The unrealized-loss numerator needs FFIEC CDR RC-B Memorandum 2.
+    # Handler stays unimplemented until that ingest lands.
+    raise NotImplementedError("htm_loss_t1 needs FFIEC CDR ingest (Day 3 plan-mode pause)")
