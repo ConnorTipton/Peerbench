@@ -85,7 +85,7 @@ You are NOT building: an M&A model, a capital plan, an earnings model, a deposit
 **Secondary: FFIEC CDR bulk data** — `cdr.ffiec.gov/public/`
 - Quarterly bulk ZIP files (Subject Data Format).
 - Source for Schedule RC-C (loan categories) and RC-R (risk-based capital) granular fields that the FDIC API may not fully expose.
-- Ingest via `openpyxl` directly from the bulk ZIPs.
+- Ingest by streaming the TSV inside each Subject Data Format ZIP (use the `csv` module or `polars.read_csv`, not `openpyxl` — the bulk files are tab-delimited text, not xlsx). Cache per-quarter in `cache/cdr/YYYY-Qn.zip` so daily reruns don't re-download.
 
 ### Release schedule and ingest cadence
 
@@ -111,7 +111,7 @@ Cost: ~1–2 GH Actions minutes per run × 30 days ≈ 30–60 min/month, well u
 
 ## Ratios
 
-28 ratios in four categories. Each ratio has an entry in `ratio_defs` with: ID, formula, source fields, annualize flag, avg-vs-EOP flag, regulatory threshold (if any), and the FDIC pre-computed code (where one exists).
+30 ratios in seven categories. Each ratio has an entry in `ratio_defs` with: ID, formula, source fields, annualize flag, avg-vs-EOP flag, regulatory threshold (if any), and the FDIC pre-computed code (where one exists).
 
 **Profitability (5)**
 - NIM — net interest income (annualized) / avg earning assets. Non-tax-equivalent. Compare to UBPR NIM (which is TE) and document the gap.
@@ -326,11 +326,11 @@ Encoded as Tailwind v4 `@theme` CSS variables:
 
 ### Phase 1 — Data pipeline (4 days)
 
-**Definition of done:** all 28 ratios computed for MidFirst and at least 4 peers for the most recent quarter; mean abs error vs FDIC pre-computed < 2 bps; max error < 5 bps; documented divergence for any larger gap; one worked example in `docs/ratios/nim.md`.
+**Definition of done:** all 30 ratios computed for MidFirst and at least 4 peers for the most recent quarter; mean abs error vs FDIC pre-computed < 2 bps; max error < 5 bps; documented divergence for any larger gap; one worked example in `docs/ratios/nim.md`.
 
 - **Day 1** — API + bulk-file inventory. Map every ratio to FDIC API + RC-C/RC-R fallback fields. Output: `ratios.csv` + populated `ratio_defs` table.
 - **Day 2** — Pipeline scaffold (uv project, httpx client, Pydantic models, SQLAlchemy schema, Supabase target). Ingest one quarter for MidFirst end-to-end.
-- **Day 3** — Ratio engine. Compute all 28 ratios for MidFirst + 4 peers. Wire `quality_log`. Build the restatement detector (see below).
+- **Day 3** — Ratio engine. Compute all 30 ratios for MidFirst + 4 peers. Wire `quality_log`. Build the restatement detector (see below).
 - **Day 4** — Validation. Diff against FDIC pre-computed and one hand-pulled UBPR. Document divergence per-ratio. Ship Phase 1.
 
 **Don't start Phase 2 until Phase 1 ships.**
@@ -348,7 +348,7 @@ This is what justifies running daily: without the detector, restatements get sil
 
 **Definition of done:**
 - Dashboard loads in <1s on Vercel.
-- All 28 ratios render for MidFirst and all peers.
+- All 30 ratios render for MidFirst and all peers.
 - Ratio matrix supports sort/filter.
 - Per-ratio drilldown shows 8-quarter trend.
 - Regulatory thresholds surface as amber flags with SR/FIL citations.
@@ -399,7 +399,7 @@ All UI conforms to the banking design spec in `docs/design.md` (summarized above
 
 **Workbook tabs.**
 1. **Cover** — anchor bank, quarter, generation timestamp, data vintage, methodology link.
-2. **Summary** — all 28 ratios for anchor + all Tier 1 peers, latest quarter. Anchor row pinned and highlighted. Peer median + anchor rank columns. Conditional formatting for top/bottom quartile.
+2. **Summary** — all 30 ratios for anchor + all Tier 1 peers, latest quarter. Anchor row pinned and highlighted. Peer median + anchor rank columns. Conditional formatting for top/bottom quartile.
 3. **Comp sheets** — one tab per Tier 1 peer (anchor vs that peer), with three sections:
    - Side-by-side income statement, latest 4 quarters
    - Side-by-side balance sheet, period-end latest quarter

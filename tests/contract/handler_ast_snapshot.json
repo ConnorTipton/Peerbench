@@ -1,0 +1,122 @@
+{
+  "acl_loans": {
+    "ast_hash": "99671797f3c2c76a",
+    "version": "v1"
+  },
+  "acl_npl": {
+    "ast_hash": "4fee90526f3c5993",
+    "version": "v1"
+  },
+  "brokered_dep": {
+    "ast_hash": "056536fa652c836a",
+    "version": "v1"
+  },
+  "cash_assets": {
+    "ast_hash": "e24edf9f574f6e66",
+    "version": "v1"
+  },
+  "cd_rbc": {
+    "ast_hash": "98acc542b9c26764",
+    "version": "v1"
+  },
+  "cet1": {
+    "ast_hash": "e749db069ae32918",
+    "version": "v1"
+  },
+  "cost_funds": {
+    "ast_hash": "7eacc969607e81d0",
+    "version": "v1"
+  },
+  "cre_rbc": {
+    "ast_hash": "e7d86c437521c512",
+    "version": "v1"
+  },
+  "deposits_liab": {
+    "ast_hash": "3b656475f326dc3c",
+    "version": "v1"
+  },
+  "eff_ratio": {
+    "ast_hash": "c4f2ed582c4b5518",
+    "version": "v1"
+  },
+  "htm_loss_t1": {
+    "ast_hash": "c54ef95eaef706de",
+    "version": "v1"
+  },
+  "loans_assets": {
+    "ast_hash": "3c3bb5edbcffd86b",
+    "version": "v1"
+  },
+  "loans_deposits": {
+    "ast_hash": "be7dbb7d785cbbd5",
+    "version": "v1"
+  },
+  "nco_ratio": {
+    "ast_hash": "b3d475d4512175f6",
+    "version": "v1"
+  },
+  "nim": {
+    "ast_hash": "34cc41e28db689df",
+    "version": "v1"
+  },
+  "nis": {
+    "ast_hash": "cd8034a6dde0e63f",
+    "version": "v1"
+  },
+  "nonint_exp_assets": {
+    "ast_hash": "3d307ebbf74af2c5",
+    "version": "v1"
+  },
+  "nonint_inc_rev": {
+    "ast_hash": "2946a34e702e034f",
+    "version": "v1"
+  },
+  "npl_ratio": {
+    "ast_hash": "e7cfea06f8606d8f",
+    "version": "v1"
+  },
+  "ppnr_assets": {
+    "ast_hash": "75676755c2c7c8aa",
+    "version": "v1"
+  },
+  "roa": {
+    "ast_hash": "6707304d9834478a",
+    "version": "v1"
+  },
+  "roe": {
+    "ast_hash": "0410512c79b23186",
+    "version": "v1"
+  },
+  "sec_assets": {
+    "ast_hash": "7d682bba5a23a0ec",
+    "version": "v1"
+  },
+  "tce_ta": {
+    "ast_hash": "7fa801604198541b",
+    "version": "v1"
+  },
+  "tier1_lev": {
+    "ast_hash": "fa7eb500f9f9b518",
+    "version": "v1"
+  },
+  "tier1_rbc": {
+    "ast_hash": "5fd8cbb13a6d5d26",
+    "version": "v1"
+  },
+  "top_loan_cat": {
+    "ast_hash": "311bbc0cbe650dcf",
+    "version": "v1"
+  },
+  "total_rbc": {
+    "ast_hash": "a246a505a2e99c14",
+    "version": "v1"
+  },
+  "uninsured_dep": {
+    "ast_hash": "8699231864438cb9",
+    "version": "v1"
+  },
+  "yield_ea": {
+    "ast_hash": "eb99b0f45e12bced",
+    "version": "v1"
+  }
+}

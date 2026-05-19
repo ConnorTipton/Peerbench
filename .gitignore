@@ -66,6 +66,8 @@ pnpm-debug.log*
 # Raw downloads (re-downloadable from FDIC / FFIEC)
 data/raw/
 data/cdr_bulk/
+# The FDIC field reference XLSX is re-downloadable; the grep-able CSV is committed.
+data/fdic_field_reference.xlsx
 
 # Generated Excel exports from `uv run peerbench export`
 output/
