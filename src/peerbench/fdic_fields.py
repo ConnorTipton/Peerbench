@@ -67,6 +67,7 @@ INCOME_FIELDS: tuple[str, ...] = (
     "NONII",
     "NONIX",
     "NTLNLS",
+    "EAMINTAN",
 )
 
 # Risk-based capital
@@ -87,6 +88,7 @@ PRECOMPUTED_RATIO_FIELDS: tuple[str, ...] = (
     "LNATRESR",
     "NTLNLSR",
     "LNRESNCR",
+    "NCLNLSR",
     "RBC1AAJ",
     "IDT1RWAJR",
     "RBCRWAJ",
