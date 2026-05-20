@@ -184,18 +184,27 @@ cd web && npm install && npm run dev                # http://localhost:3000
 
 ## Recommended first action
 
-Pick a direction for the next session. Three reasonable options:
+**Phase 3 hosting** — daily ingest cron via GH Actions (also serves as the
+Supabase 7-day inactivity heartbeat), Supabase RLS enable + permissive read
+policy migration, Vercel Hobby deploy of `web/`, weekly `pg_dump` backup.
+Highest leverage because: (1) the daily cron is what catches FDIC
+restatements within a day; (2) Vercel deploy makes the dashboard demoable
+for the internship; (3) RLS must land before any public deploy regardless.
 
-1. **Phase 2 Sprint 2** — per-peer sort, ratio category collapse/expand,
-   drill-down detail view, restatement tooltip (data already pulled in
-   `queries.ts`), conditional-formatting tints per `docs/design.md`.
-2. **Phase 3 hosting** — daily ingest cron via GH Actions, Supabase RLS
-   enable + permissive read policy migration, Vercel Hobby deploy of
-   `web/`. The cron also doubles as the Supabase 7-day inactivity heartbeat.
-3. **Phase 4 Excel export starter** — CLI scaffold for
-   `peerbench export --quarter --output` reading from the `ratios` table
-   per the design contract (`docs/design.md` §"Excel export design parity").
+The next-chat prompt is at `~/.claude/plans/phase-3-hosting-prep.md`. Paste
+it into a fresh Claude Code chat with plan mode active.
+
+Alternatives if you'd rather defer hosting:
+
+- **Phase 2 Sprint 2** — per-peer sort, ratio category collapse/expand,
+  drill-down detail view, restatement tooltip (data already pulled in
+  `queries.ts`), conditional-formatting tints per `docs/design.md`.
+- **Phase 4 Excel export starter** — CLI scaffold for
+  `peerbench export --quarter --output` reading from the `ratios` table
+  per `docs/design.md` §"Excel export design parity". Probably wait until
+  the dashboard is hosted so the workbook can be validated against the
+  production view.
 
 The continuation prompt at `~/.claude/plans/phase-2-sprint-1-continuation.md`
-is now obsolete and can be deleted. The plan file used for this session is
-at `~/.claude/plans/next-chat-prompt-humming-taco.md`.
+is obsolete and can be deleted. The plan file used for the just-closed
+session is at `~/.claude/plans/next-chat-prompt-humming-taco.md`.
