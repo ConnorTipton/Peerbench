@@ -195,7 +195,86 @@ def test_iter_schedule_rows_raises_when_required_column_missing(tmp_path: Path) 
     _make_zip(zip_path, {"FFIEC CDR Call Schedule RCRI 12312025.txt": bad_tsv})
     client = CdrClient(cache_dir=tmp_path)
     with pytest.raises(ValueError, match="missing required column"):
-        list(client.iter_schedule_rows("2025-Q4", "RCRI", required_columns=("RCOA8274",)))
+        list(
+            client.iter_schedule_rows(
+                "2025-Q4", "RCRI", required_columns=(("RCOA8274",),)
+            )
+        )
+
+
+def test_iter_schedule_rows_fans_in_across_split_files(tmp_path: Path) -> None:
+    """RCB ships split as `(1 of 2).txt` + `(2 of 2).txt` in real FFIEC
+    ZIPs (confirmed in cache/cdr/2025-Q4.zip). Banks are row-split: First-
+    Citizens is in part 1; some of the 5-bank sample lands in part 2. The
+    parser must iterate ALL matching members so no bank is silently dropped.
+    """
+    zip_path = tmp_path / "2025-Q4.zip"
+    rcb_part1 = "IDRSSD\tRCFD1773\n11111\t100\n22222\t200\n"
+    rcb_part2 = "IDRSSD\tRCFD1773\n33333\t300\n44444\t400\n"
+    _make_zip(
+        zip_path,
+        {
+            "FFIEC CDR Call Schedule RCB 12312025(1 of 2).txt": rcb_part1,
+            "FFIEC CDR Call Schedule RCB 12312025(2 of 2).txt": rcb_part2,
+        },
+    )
+    client = CdrClient(cache_dir=tmp_path)
+    rows = list(client.iter_schedule_rows("2025-Q4", "RCB"))
+    rssds = {r["IDRSSD"] for r in rows}
+    assert rssds == {"11111", "22222", "33333", "44444"}
+
+
+def test_required_columns_group_satisfied_by_any_candidate(tmp_path: Path) -> None:
+    """For multi-domain MDRMs (RCOAP859 vs RCFAP859), the header check is
+    'at least one of these candidates is present', not 'all present'."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    # Domestic-only filer fixture: RCOAP859 present, RCFAP859 absent.
+    tsv = "IDRSSD\tRCOAP859\n12345\t1500000\n"
+    _make_zip(zip_path, {"FFIEC CDR Call Schedule RCRI 12312025.txt": tsv})
+    client = CdrClient(cache_dir=tmp_path)
+    rows = list(
+        client.iter_schedule_rows(
+            "2025-Q4",
+            "RCRI",
+            required_columns=(("IDRSSD",), ("RCOAP859", "RCFAP859")),
+        )
+    )
+    assert len(rows) == 1
+    assert rows[0]["RCOAP859"] == "1500000"
+
+
+def test_required_columns_group_fails_when_none_present(tmp_path: Path) -> None:
+    """If the header has zero candidates from a required group, fail loud
+    (layout drift / wrong MDRM family). This preserves the post-Task-25
+    'no silent zero matches' contract."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    bad_tsv = "IDRSSD\tRCOA9999\n12345\t1\n"
+    _make_zip(zip_path, {"FFIEC CDR Call Schedule RCRI 12312025.txt": bad_tsv})
+    client = CdrClient(cache_dir=tmp_path)
+    with pytest.raises(ValueError, match="missing required column"):
+        list(
+            client.iter_schedule_rows(
+                "2025-Q4",
+                "RCRI",
+                required_columns=(("RCOAP859", "RCFAP859"),),
+            )
+        )
+
+
+def test_pick_first_non_empty_walks_candidates() -> None:
+    """Helper that consumers (cli.py:ingest_cdr) use to resolve a single
+    value across the candidate column tuple from cdr_columns()."""
+    from peerbench.ingest.cdr import pick_first_non_empty
+
+    row = {"IDRSSD": "12345", "RCOAP859": "", "RCFAP859": "1500000"}
+    assert pick_first_non_empty(row, ("RCOAP859", "RCFAP859")) == "1500000"
+
+    row2 = {"IDRSSD": "12345", "RCOAP859": "  ", "RCFAP859": ""}
+    assert pick_first_non_empty(row2, ("RCOAP859", "RCFAP859")) is None
+
+    row3 = {"IDRSSD": "12345", "RCOAP859": "9", "RCFAP859": "1"}
+    # First non-empty wins; doesn't blend or sum.
+    assert pick_first_non_empty(row3, ("RCOAP859", "RCFAP859")) == "9"
 
 
 def test_iter_schedule_rows_required_columns_default_off(tmp_path: Path) -> None:
