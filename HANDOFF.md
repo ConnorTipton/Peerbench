@@ -1,16 +1,58 @@
-# Peerbench — handoff (2026-05-20 evening, Phase 1 closed; Sprint 1 dashboard PR open)
+# Peerbench — handoff (2026-05-20 night, Phase 1 + Phase 2 Sprint 1 closed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md` (v1.3) before doing anything substantive.
 
 ## TL;DR
 
 - **Phase 1 is fully closed.** Validation gate `PASS` with N=540, mean=0.02 bps, max=0.51 bps. `cet1` joined the per-ratio table at 0.00/0.00 bps vs FDIC `IDT1CER`. `htm_loss_t1` is `ok` across the full 5-bank × 8-quarter grid. **`top_loan_cat` (RC-C expansion) is the only remaining `NotImplementedError`** — formally deferable to Phase 4 per `docs/divergences.md`.
-- **PR #2 (CDR ingest data-quality fix) was squash-merged to `main` at `3067950`.** Closed three bugs: wrong CET1 MDRM (`RCOA8274` → `(RCOAP859, RCFAP859)`), missing multi-column candidate lookup, and missing multi-file fan-in for column-split RC-B. Now 74 tests passing (was 63).
-- **PR #1 (Phase 2 Sprint 1 dashboard scaffold) is rebased on the new `main`, MERGEABLE + CLEAN, awaiting self-review.** https://github.com/ConnorTipton/Peerbench/pull/1. Force-push happened after the rebase; head is at `a052212`.
-- **Working tree** as of this handoff: on branch `phase-2-sprint-1-dashboard-scaffold`, clean, in sync with origin. `main` at `3067950`.
-- **DB state:** 5 banks × 8 quarters with 29 of 30 ratios `ok`; `top_loan_cat` is the lone `partial`. `CDR_CET1_CAPITAL` + `CDR_HTM_FAIRVAL` facts populated for all (cert, quarter) pairs.
+- **PR #2 (CDR ingest data-quality fix) merged at `3067950`.** Closed three bugs: wrong CET1 MDRM (`RCOA8274` → `(RCOAP859, RCFAP859)`), missing multi-column candidate lookup, and missing multi-file fan-in for column-split RC-B.
+- **PR #1 (Phase 2 Sprint 1 dashboard + polish) squash-merged at `e000cc1`.** Closes Sprint 1: Next.js 16 + Tailwind v4 scaffold, 30-ratio × 5-peer matrix for the latest quarter, anchor selector, sticky header/column, design tokens from `docs/design.md` in `@theme`. Polish landed before merge — per-cell restatement scoping via handler-AST-derived deps and a <1s load benchmark (see "Sprint 1 polish" below).
+- **Test count: 78 passing** (was 74 post-PR-#2; +4 tests for the field-deps contract + ingest scope + CBLR suppression-dep regression).
+- **Working tree:** on `main` @ `e000cc1`, clean (`.gitignore` carries an external `.gstack/` addition from gstack tooling, not from any of my work).
+- **DB state unchanged:** 5 banks × 8 quarters; 29 of 30 ratios `ok`; `top_loan_cat` lone `partial`.
 
-## What landed in this session (PR #2, 8 commits → 1 squash merge `3067950`)
+## What landed this session (Sprint 1 polish → PR #1 squash merge `e000cc1`)
+
+Branch `phase-2-sprint-1-dashboard-scaffold`. Three additional commits on top
+of the prior 4 web commits before squash:
+
+1. **`9a6dbd4` — `feat(ratio-engine):` handler field-dep extraction + snapshot CLI.**
+   New `src/peerbench/ratio_engine/field_deps.py` walks each handler's AST,
+   unions `RATIO_DEPENDENCIES` transitive closure, and merges
+   `SUPPRESS_KEY_FIELDS` (new in `suppression.py`: maps `suppress_when` keys
+   to FFIEC field codes). `peerbench export-field-deps` writes the snapshot
+   to `web/lib/ratio-field-deps.generated.json`. A new contract test
+   (`TestFieldDepsSnapshot`) enforces snapshot ↔ AST in lock-step.
+2. **`73177c6` — `fix(ingest):` scope restatement partial flip to consumer
+   ratios.** `ingest/quality_log.py` now flips
+   `Ratio.ratio_id IN (consumers_of_restated_field)` instead of every ratio
+   for the bank-quarter. Skips the UPDATE when the field has no registered
+   consumer.
+3. **`5370804` — `feat(web):` per-cell restatement marker keyed by
+   `ratio_id`.** `queries.ts` selects `field_code` from `quality_log`,
+   resolves to ratio_ids via the snapshot, builds
+   `Set<${cert}|${ratio_id}>`. Dashboard never sees raw field codes.
+
+### Sprint 1 polish — gap closure summary
+
+- **Gap (a) — per-cell restatement scoping.** Before: any restatement for
+  `(cert, quarter_id)` lit up every cell in that bank's column (60 cells of
+  180 with the current seed). After: 5 marked cells matching `docs/design.md`
+  exactly (4 NIM-consuming ratios on MidFirst + 1 CET1 on Bank OZK).
+  Verified end-to-end in browser.
+- **Gap (b) — <1s load benchmark.** Dev-mode timings on localhost:3000 with
+  Supabase round-trip: TTFB 566 ms, DOM Ready 614 ms, **Load 812 ms**, 80 KB
+  payload. Under the <1s spec even with Turbopack compile overhead; prod
+  build will be lower.
+- **Codex review:** 1 P1 (CBLRIND missing from suppression deps —
+  `tier1_rbc`/`total_rbc`/`cet1` would have skipped the partial flip on
+  CBLR-election changes) **fixed in `9a6dbd4`** via `SUPPRESS_KEY_FIELDS`.
+  2 P2s justified in PR body: (i) Python re-runs AST at runtime while web
+  reads the snapshot — contract test is the cross-layer guarantee; (ii)
+  `f.avg(...)` represents a field dep but not a temporal one (cross-quarter
+  recompute deferred to Sprint 2).
+
+## Previously landed (PR #2, squash merge `3067950`)
 
 Branch `fix-cdr-multi-column-and-multi-file` cut from `origin/main` at `77076c1`. Eight per-task commits squashed on merge:
 
@@ -36,17 +78,16 @@ Branch `fix-cdr-multi-column-and-multi-file` cut from `origin/main` at `77076c1`
 - 29 of 30 ratios at `ok` across the 5×8 grid. `top_loan_cat` is `partial` (raises `NotImplementedError` — intentional defer).
 - Restatement detector wired and producing audit-trail rows on each ingest.
 
-### Phase 2 — Sprint 1 in PR #1
-- **PR #1 head:** `a052212` on `phase-2-sprint-1-dashboard-scaffold`. Rebased cleanly onto post-PR-#2 main. Confirmed MERGEABLE + CLEAN via `gh pr view 1`.
-- **Dashboard renders** the 30-ratio × 5-peer matrix for the latest renderable quarter (2025-Q4). Real institution names, restatement marker visible on the MidFirst Q4 NIM cell, sticky header + first column, anchor highlight on MidFirst column. Design tokens in Tailwind v4 `@theme`.
-- **Reviewer-flagged soft items already fixed on the branch:** arbitrary-value escapes → utility classes; positional anchor detection → typed `ColumnMeta.cert` via TanStack module augmentation.
-- **Two outstanding Sprint-1 polish gaps** worth confirming before merge:
-  - Restatement indicator is per-cell currently — confirm against `docs/design.md` whether row-/column-level rollup is also expected.
-  - <1s load target wasn't formally benchmarked; time it with browser dev tools before declaring Sprint 1 done.
+### Phase 2 — Sprint 1 closed (PR #1 merged at `e000cc1`)
+- Dashboard renders the 30-ratio × 5-peer matrix for the latest renderable quarter (2025-Q4). Real institution names, anchor tint on MidFirst column, sticky header + first column, design tokens from `docs/design.md` encoded in Tailwind v4 `@theme`.
+- Restatement marker is per-cell (per `docs/design.md` spec), keyed by `(cert, ratio_id)`. The field→ratio mapping comes from `web/lib/ratio-field-deps.generated.json`, derived from handler ASTs by `peerbench export-field-deps`. Contract test `TestFieldDepsSnapshot` keeps it in lock-step with handler bodies.
+- Load time: 812 ms in dev mode on localhost (TTFB 566 ms, DOM Ready 614 ms, 80 KB payload). Production will be lower.
 
-### Phase 2 — Sprint 2 onward (not yet started)
-- Per-peer sort, ratio category grouping, drill-down detail view per `PLAN.md` v1.3.
-- Dashboard polish per `docs/design.md` — banking-grade typography, conditional formatting, tabular-nums.
+### Phase 2 — Sprint 2 onward (next up)
+- Per-peer sort, ratio category collapse/expand, drill-down detail view per `PLAN.md` v1.3.
+- Restatement tooltip: `queries.ts` already pulls `old_value`/`new_value`/`detected_at` from `quality_log`; UI work remains.
+- Cross-quarter recompute for `f.avg(...)` consumers (codex P2 from PR #1 — a restatement to a prior quarter's `DEPI` should mark the current quarter's `cost_funds`/`nis` too).
+- Dashboard polish per `docs/design.md` — conditional formatting heat map (top/bottom quartile tints), regulatory threshold amber flags.
 
 ### Phase 3 — Hosting & cron (not started)
 - Daily ingest cron via GitHub Actions. Weekly Supabase backup. Vercel Hobby deploy of `web/`.
@@ -55,26 +96,36 @@ Branch `fix-cdr-multi-column-and-multi-file` cut from `origin/main` at `77076c1`
 ### Phase 4 — Polish (not started)
 - Insights generation, Excel export from `ratios` table, README + Loom.
 
-## What's NOT changed by PR #2
+## What's NOT changed by PR #1 polish
 
-- Handler bodies (`compute_cet1`, `compute_htm_loss_t1`) — untouched; AST snapshot clean.
-- `data/ratios.csv` — untouched; `cet1.fdic_precomputed_code = IDT1CER`, `htm_loss_t1.fdic_precomputed_code` still empty (no FDIC pre-computed counterpart).
-- `tests/contract/handler_ast_snapshot.json` — untouched; all handlers stay at `version="v1"`.
+- Handler bodies (`compute_*`) — untouched; AST snapshot clean. All handlers stay at `version="v1"` per the Phase 1 contract.
+- `data/ratios.csv` — untouched.
+- `tests/contract/handler_ast_snapshot.json` — untouched.
+- Validation gate — untouched. `peerbench validate` still PASS at mean 0.02 bps / max 0.51 bps; PR #1 added no ratio definitions or formula changes.
 
 ## Quick verify (run when picking up the session)
 
 ```bash
-git -C /Users/connortipton/Projects/Peerbench log main -1 --oneline
-# Expect: 3067950 fix(ingest): CDR multi-column lookup + multi-file fan-in ... (#2)
-
-git -C /Users/connortipton/Projects/Peerbench log phase-2-sprint-1-dashboard-scaffold --oneline -5
-# Expect head a052212 plus 3 rebased web/ commits ahead of main
+git -C /Users/connortipton/Projects/Peerbench log main -2 --oneline
+# Expect:
+#   e000cc1 Phase 2 Sprint 1 — Next.js 16 scaffold + ratio matrix (#1)
+#   3067950 fix(ingest): CDR multi-column lookup + multi-file fan-in ... (#2)
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
-# Expect: 74 passed
+# Expect: 78 passed
 
-uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 2>&1 | tail -5
-# Expect: Gate: PASS  (N=540, mean=0.02 bps, max=0.51 bps)
+uv run peerbench export-field-deps --out /tmp/check.json
+diff /tmp/check.json web/lib/ratio-field-deps.generated.json
+# Expect: identical (no diff). Drift means a handler edit landed without
+# regenerating the snapshot — re-run `peerbench export-field-deps` and
+# commit the JSON.
+
+cd web && npm install && npm run dev
+# Open http://localhost:3000 — confirm:
+#   • MidFirst column: `r` superscript on NIM, Efficiency Ratio, PPNR,
+#     Non-int Inc/Rev (4 NIM consumers)
+#   • Bank OZK column: `r` on CET1 only
+#   • Other peer columns: no `r` markers
 ```
 
 If any diverge, surface to the user before doing substantive work.
@@ -85,12 +136,13 @@ If any diverge, surface to the user before doing substantive work.
 
 ```bash
 # Python pipeline
-uv run pytest                                       # 74 tests
+uv run pytest                                       # 78 tests
 uv run peerbench info                               # 30 handlers, 65 field codes
 uv run peerbench ingest --cert 4063 --quarters 1    # FDIC API
 uv run peerbench ingest-cdr --certs 4063,4214,110,11063,5510 --quarters 8  # CDR ZIPs
 uv run peerbench compute --cert 4063 --quarters 1   # compute ratios
 uv run peerbench validate --certs 4063 --quarters 1 # bp diff vs FDIC precomputed
+uv run peerbench export-field-deps                  # regenerate handler→field snapshot
 
 # Dashboard
 cd web && npm install && npm run dev                # http://localhost:3000
@@ -106,6 +158,7 @@ cd web && npm install && npm run dev                # http://localhost:3000
 - **Parser `required_columns`** semantic is OR-within-group, AND-across-groups, with per-member skip and aggregate fail-loud. Don't bypass.
 - **Ratio handler registry.** Every ratio has a row in `ratio_defs` AND a registered handler. Contract test enforces 1:1 + AST-hash drift detection.
 - **All handler versions stay at `"v1"`.** Phase 1 hasn't shipped externally. To change a handler body: edit, delete `tests/contract/handler_ast_snapshot.json`, run pytest once to regenerate, then run again clean.
+- **Handler field-dependency snapshot.** `peerbench export-field-deps` walks each handler's AST and writes `web/lib/ratio-field-deps.generated.json`. The ingest restatement callback and the dashboard's per-cell marker both consume it. After any handler edit that touches field references, regenerate and commit; the contract test will fail otherwise. New `suppress_when` keys also require an entry in `SUPPRESS_KEY_FIELDS` in `ratio_engine/suppression.py`.
 - **No formula logic in TS or Excel.** Dashboard and (future) Excel export read `ratios.value` only.
 - **Post-CECL nomenclature.** ACL, never ALLL.
 
@@ -119,7 +172,7 @@ cd web && npm install && npm run dev                # http://localhost:3000
 
 ## Today's date
 
-2026-05-20 (evening session). Most recent finalized quarter (90-day publication latency) is **2025-Q4** (`report_date = 2025-12-31`). 2026-Q1 will publish ~late June 2026.
+2026-05-20 (night session). Most recent finalized quarter (90-day publication latency) is **2025-Q4** (`report_date = 2025-12-31`). 2026-Q1 will publish ~late June 2026.
 
 ## User context / preferences
 
@@ -131,4 +184,18 @@ cd web && npm install && npm run dev                # http://localhost:3000
 
 ## Recommended first action
 
-Open `gh pr view 1 --web` and self-review the Sprint 1 dashboard. Either squash-merge it (if it looks done) or pick up the Sprint 1 polish gaps (restatement rollup, <1s load benchmark). See the next-chat prompt at `~/.claude/plans/phase-2-sprint-1-continuation.md` for the planned next step.
+Pick a direction for the next session. Three reasonable options:
+
+1. **Phase 2 Sprint 2** — per-peer sort, ratio category collapse/expand,
+   drill-down detail view, restatement tooltip (data already pulled in
+   `queries.ts`), conditional-formatting tints per `docs/design.md`.
+2. **Phase 3 hosting** — daily ingest cron via GH Actions, Supabase RLS
+   enable + permissive read policy migration, Vercel Hobby deploy of
+   `web/`. The cron also doubles as the Supabase 7-day inactivity heartbeat.
+3. **Phase 4 Excel export starter** — CLI scaffold for
+   `peerbench export --quarter --output` reading from the `ratios` table
+   per the design contract (`docs/design.md` §"Excel export design parity").
+
+The continuation prompt at `~/.claude/plans/phase-2-sprint-1-continuation.md`
+is now obsolete and can be deleted. The plan file used for this session is
+at `~/.claude/plans/next-chat-prompt-humming-taco.md`.
