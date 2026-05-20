@@ -140,7 +140,7 @@ land in Phase 2.
 
 Current snapshot (2026-05-19, 5 banks × 8 quarters, 500 comparisons):
 
-- **Aggregate: mean 0.04 bps, max 0.51 bps — PASS** vs DoD bar of
+- **Aggregate: mean 0.02 bps, max 0.51 bps — PASS** vs DoD bar of
   <2 bps mean / <5 bps max.
 - See [`docs/validation-snapshot.md`](./validation-snapshot.md) for the
   per-ratio breakdown.

@@ -4,7 +4,7 @@ You are continuing work on Peerbench, Connor's FP&A internship-prep project at `
 
 ## TL;DR
 
-- **Phase 1 is functionally complete.** All four days landed; 27 of 30 ratios shipped and validate to **mean 0.04 bps / max 0.51 bps** across 5 banks × 8 quarters × 13 mapped ratios = 500 comparisons (DoD bar: <2 / <5 bps — PASS). See `docs/validation-snapshot.md`.
+- **Phase 1 is functionally complete.** All four days landed; 27 of 30 ratios shipped and validate to **mean 0.02 bps / max 0.51 bps** across 5 banks × 8 quarters × 13 mapped ratios = 500 comparisons (DoD bar: <2 / <5 bps — PASS). See `docs/validation-snapshot.md`.
 - **Restatement detector is wired and smoke-tested end-to-end.** Synthetic diff → quality_log row + 30 ratios flipped to partial → next compute restores to ok.
 - **3 handlers intentionally `NotImplementedError`**: `cet1`, `htm_loss_t1` (need FFIEC CDR), `top_loan_cat` (needs RC-C field expansion). See `docs/divergences.md`.
 - **35 tests passing.** Working tree clean (commits may not yet be pushed — Connor pushes manually).
