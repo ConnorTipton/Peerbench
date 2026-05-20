@@ -91,3 +91,10 @@ CREATE POLICY "dashboard_read" ON quarters     FOR SELECT USING (true);
 CREATE POLICY "dashboard_read" ON ratio_defs   FOR SELECT USING (true);
 CREATE POLICY "dashboard_read" ON ratios       FOR SELECT USING (true);
 CREATE POLICY "dashboard_read" ON quality_log  FOR SELECT USING (true);
+
+-- Foreign-key covering indexes (Phase 3 — see sql/migrations/0002_add_fk_indexes.sql).
+-- Clears the Supabase performance advisor "Unindexed foreign keys" findings.
+CREATE INDEX IF NOT EXISTS facts_quarter_id_idx
+  ON facts (quarter_id);
+CREATE INDEX IF NOT EXISTS institutions_acquired_by_idx
+  ON institutions (acquired_by);
