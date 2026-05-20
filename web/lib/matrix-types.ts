@@ -20,6 +20,11 @@ export function cellKey(cert: number, ratioId: string): string {
   return `${cert}|${ratioId}`;
 }
 
-export function restatementKey(cert: number, quarterId: string): string {
-  return `${cert}|${quarterId}`;
+// Keyed by `(cert, ratio_id)` so the `r` superscript only renders on cells
+// whose underlying inputs actually moved. The field→ratio resolution lives in
+// queries.ts (server-side) using the handler-derived snapshot at
+// web/lib/ratio-field-deps.generated.json — the dashboard never owns formula
+// or dependency logic.
+export function restatementKey(cert: number, ratioId: string): string {
+  return `${cert}|${ratioId}`;
 }

@@ -17,7 +17,7 @@ import {
   type RatioGroup,
 } from "@/lib/matrix-types";
 import { EM_DASH, formatRatio } from "@/lib/format";
-import type { Institution, Quarter, RatioCategory, RatioDef } from "@/types/db";
+import type { Institution, RatioCategory, RatioDef } from "@/types/db";
 
 // Carry the cert on each peer column so anchor-column detection doesn't
 // depend on `institutions[i - 1]` — a positional read that silently breaks
@@ -38,7 +38,6 @@ type Props = {
   ratioGroups: RatioGroup[];
   cells: Map<string, MatrixCell>;
   restatedKeys: Set<string>;
-  quarter: Quarter;
   anchorCert: number;
 };
 
@@ -54,7 +53,6 @@ export function RatioMatrix({
   ratioGroups,
   cells,
   restatedKeys,
-  quarter,
   anchorCert,
 }: Props) {
   const rows: Row[] = useMemo(() => {
@@ -101,12 +99,12 @@ export function RatioMatrix({
         const r = row.original;
         if (r.kind === "section") return null;
         const c = cells.get(cellKey(inst.cert, r.def.ratio_id));
-        const restated = restatedKeys.has(restatementKey(inst.cert, quarter.quarter_id));
+        const restated = restatedKeys.has(restatementKey(inst.cert, r.def.ratio_id));
         return <DataCell cell={c} restated={restated} />;
       },
     }));
     return [ratioColumn, ...peerColumns];
-  }, [institutions, cells, restatedKeys, quarter.quarter_id]);
+  }, [institutions, cells, restatedKeys]);
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 

@@ -37,7 +37,6 @@ export default async function HomePage({
         ratioGroups={data.ratioGroups}
         cells={data.cells}
         restatedKeys={data.restatedKeys}
-        quarter={data.quarter}
         anchorCert={anchorCert}
       />
     </main>
