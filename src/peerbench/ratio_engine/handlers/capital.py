@@ -3,9 +3,6 @@
 tier1_rbc, total_rbc, and cet1 are pipeline-suppressed for CBLR filers
 (CBLRIND=1) via suppress_when={"cblr": true} in ratio_defs. Handlers stay
 pure — suppression is handled by the dispatcher before reaching them.
-
-cet1 stays NotImplementedError until FFIEC CDR ingest lands (FDIC API
-does not expose the CET1 capital dollar amount, only the ratio).
 """
 
 from __future__ import annotations
@@ -40,8 +37,7 @@ def compute_total_rbc(f: FactView) -> Decimal:
 
 @ratio("cet1", version="v1")
 def compute_cet1(f: FactView) -> Decimal:
-    # FDIC API exposes the precomputed CET1 ratio (IDT1CER) but not the
-    # CET1 dollar-amount numerator. FFIEC CDR Schedule RC-R Part I fills
-    # the gap. Until then, this handler is intentionally unimplemented;
-    # the dispatcher classifies the result as PartialResult.
-    raise NotImplementedError("cet1 needs FFIEC CDR ingest (Day 3 plan-mode pause)")
+    # CET1 capital ($) comes from FFIEC CDR Schedule RC-R Part I via the
+    # `peerbench ingest-cdr` pipeline; FDIC API only exposes the ratio.
+    # Suppressed for CBLR filers at pipeline layer.
+    return f["CDR_CET1_CAPITAL"] / f["RWAJT"]

@@ -66,6 +66,9 @@ pnpm-debug.log*
 # Raw downloads (re-downloadable from FDIC / FFIEC)
 data/raw/
 data/cdr_bulk/
+
+# FFIEC CDR ZIP cache (transparent re-fetch; each quarter is hundreds of MB)
+cache/
 # The FDIC field reference XLSX is re-downloadable; the grep-able CSV is committed.
 data/fdic_field_reference.xlsx
 

@@ -1,7 +1,8 @@
 """Liquidity / deposit composition: uninsured_dep, brokered_dep, htm_loss_t1.
 
-uninsured_dep and brokered_dep are FDIC-API-only. htm_loss_t1 needs FFIEC
-CDR Schedule RC-B Memorandum 2 (HTM fair value not exposed by the API).
+uninsured_dep and brokered_dep are FDIC-API-only. htm_loss_t1 combines
+HTM amortized cost (SCHA, FDIC API) with HTM fair value (FFIEC CDR
+Schedule RC-B Memorandum 2, ingested via `peerbench ingest-cdr`).
 """
 
 from __future__ import annotations
@@ -27,7 +28,7 @@ def compute_brokered_dep(f: FactView) -> Decimal:
 
 @ratio("htm_loss_t1", version="v1")
 def compute_htm_loss_t1(f: FactView) -> Decimal:
-    # FDIC API exposes HTM amortized cost (SCHA) but not HTM fair value.
-    # The unrealized-loss numerator needs FFIEC CDR RC-B Memorandum 2.
-    # Handler stays unimplemented until that ingest lands.
-    raise NotImplementedError("htm_loss_t1 needs FFIEC CDR ingest (Day 3 plan-mode pause)")
+    # Unrealized HTM loss / Tier 1 capital. SCHA = HTM amortized cost
+    # (FDIC API); CDR_HTM_FAIRVAL = HTM fair value (FFIEC CDR RC-B Memo 2).
+    # Positive numerator => HTM portfolio underwater vs book.
+    return (f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]

@@ -3,6 +3,7 @@
 Commands:
   peerbench seed-ratios     — Upsert data/ratios.csv into the ratio_defs table.
   peerbench ingest          — Fetch FDIC API facts for a bank-quarter.
+  peerbench ingest-cdr      — Read FFIEC CDR ZIPs and upsert CDR_* fields.
   peerbench compute         — Compute ratios for a bank-quarter and persist.
   peerbench info            — Quick sanity dump of registry + config.
 """
@@ -11,6 +12,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
 
@@ -21,8 +23,10 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from peerbench.config import get_settings
 from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
 from peerbench.db.ratio_writer import upsert_ratio
-from peerbench.fdic_fields import all_fields
+from peerbench.fdic_fields import all_field_codes, all_fields
 from peerbench.ingest import FdicClient, make_quality_log_callback, upsert_fact
+from peerbench.ingest.cdr import RSSD_COLUMN, CdrClient, CdrZipNotCachedError
+from peerbench.ingest.cdr_schema import SCHEDULE_PATTERN, cdr_column, known_labels
 from peerbench.quarters import (
     parse_quarter_id,
     quarter_end_date,
@@ -179,6 +183,106 @@ def ingest(
     typer.echo(f"done: {written} fact upserts across {len(qids)} quarter(s)")
 
 
+_CDR_FIELD_CODE: dict[str, str] = {
+    "CET1_CAPITAL": "CDR_CET1_CAPITAL",
+    "HTM_FAIRVAL": "CDR_HTM_FAIRVAL",
+}
+
+
+def _parse_cert_list(certs: str) -> list[int]:
+    return [int(c.strip()) for c in certs.split(",") if c.strip()]
+
+
+def _coerce_cdr_value(raw: str | None) -> Decimal | None:
+    if raw is None:
+        return None
+    s = raw.strip()
+    if not s or s.upper() in {"NR", "N/A", "NA", "NULL"}:
+        return None
+    try:
+        return Decimal(s)
+    except (ValueError, InvalidOperation):
+        return None
+
+
+@app.command("ingest-cdr")
+def ingest_cdr(
+    certs: Annotated[str, typer.Option("--certs", help="Comma-separated FDIC cert numbers")],
+    quarters: Annotated[int, typer.Option("--quarters", help="How many most-recent quarters")] = 1,
+) -> None:
+    """Ingest FFIEC CDR fields (CET1 capital, HTM fair value) into `facts`.
+
+    Reads cached Subject Data Format ZIPs from `cache/cdr/YYYY-Qn.zip`. The
+    FFIEC bulk endpoint is form-driven and not auto-downloadable; if a ZIP
+    is missing, the client raises with manual-download instructions.
+
+    Requires `peerbench ingest` to have been run first so the `RSSDID` fact
+    is populated — CDR rows are keyed by RSSD, and we map back to Cert.
+    """
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    cert_list = _parse_cert_list(certs)
+    qids = recent_finalized_quarters(quarters)
+    typer.echo(f"ingest-cdr certs={cert_list} quarters={qids}")
+
+    client = CdrClient()
+    with get_session() as session:
+        rssd_rows = session.execute(
+            select(Fact.cert, Fact.value)
+            .where(Fact.field_code == "RSSDID")
+            .where(Fact.cert.in_(cert_list))
+        ).all()
+        cert_for_rssd: dict[int, int] = {}
+        for cert_val, value in rssd_rows:
+            if value is None:
+                continue
+            cert_for_rssd[int(value)] = cert_val
+        missing = set(cert_list) - set(cert_for_rssd.values())
+        if missing:
+            typer.echo(
+                f"Missing RSSDID in facts for certs: {sorted(missing)}. "
+                f"Run `peerbench ingest --cert <N>` first.",
+                err=True,
+            )
+            raise typer.Exit(code=2)
+
+        on_diff = make_quality_log_callback(session)
+        upsert_count = 0
+        for qid in qids:
+            _ensure_quarter(session, qid, source="ffiec_cdr")
+            for label in known_labels():
+                pattern = SCHEDULE_PATTERN[label]
+                mdrm = cdr_column(qid, label)
+                field_code = _CDR_FIELD_CODE[label]
+                seen = 0
+                matched = 0
+                try:
+                    for row in client.iter_schedule_rows(qid, pattern):
+                        seen += 1
+                        rssd_raw = row.get(RSSD_COLUMN)
+                        if not rssd_raw:
+                            continue
+                        try:
+                            rssd = int(rssd_raw.strip())
+                        except ValueError:
+                            continue
+                        cert_val = cert_for_rssd.get(rssd)
+                        if cert_val is None:
+                            continue
+                        value = _coerce_cdr_value(row.get(mdrm))
+                        if value is None and session.get(Fact, (cert_val, qid, field_code)) is None:
+                            continue
+                        upsert_fact(session, cert_val, qid, field_code, value, on_diff=on_diff)
+                        upsert_count += 1
+                        matched += 1
+                except CdrZipNotCachedError as e:
+                    typer.echo(str(e), err=True)
+                    raise typer.Exit(code=2) from None
+                typer.echo(f"  {qid} {label}: {matched} matched / {seen} scanned")
+    typer.echo(f"done: {upsert_count} CDR fact upserts")
+
+
 @app.command("compute")
 def compute(
     cert: Annotated[int, typer.Option("--cert", help="FDIC certificate number")],
@@ -272,7 +376,10 @@ def info() -> None:
     typer.echo(f"DB url scheme:    {settings.sqlalchemy_url.split('://')[0]}")
     typer.echo(f"FDIC API key set: {bool(settings.fdic_api_key)}")
     typer.echo(f"Registered:       {len(handlers)} ratio handlers")
-    typer.echo(f"Fields fetched:   {len(all_fields())}")
+    typer.echo(
+        f"Field codes:      {len(all_field_codes())} "
+        f"({len(all_fields())} FDIC API + {len(all_field_codes()) - len(all_fields())} CDR)"
+    )
 
 
 if __name__ == "__main__":

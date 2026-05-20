@@ -5,33 +5,13 @@ Permanent home for the catalog of (a) ratios whose handlers raise
 methodology divergences vs FDIC or UBPR. Lives in `docs/` so it
 survives session churn and conversation context resets.
 
-Last updated: 2026-05-19 (end of Phase 1 Day 4).
+Last updated: 2026-05-19 (Task 25 — CDR ingest infrastructure landed).
 
-## NotImplementedError handlers (3)
+## NotImplementedError handlers (1 remaining)
 
-These three handlers are intentional stubs at v1. They're surfaced as
-`data_quality='partial'` in the `ratios` table so the dashboard can show
-a "data unavailable" indicator instead of a wrong number.
-
-### `cet1` — Common Equity Tier 1 Capital Ratio
-
-- **Why deferred:** the CET1 *capital dollar amount* is reported on
-  FFIEC Schedule RC-R Part I and is not exposed by the FDIC BankFind API
-  (the FDIC API only returns the precomputed ratio `IDT1CER`).
-- **What's needed:** FFIEC CDR ingest. Plan-approved scope lives at
-  `~/.claude/plans/enter-plan-mode-for-silly-spark.md` §3 ("FFIEC CDR
-  ingest path"): download the per-quarter Subject Data Format ZIP, parse
-  the embedded TSV, extract RC-R Part I CET1 capital, persist.
-- **Suppressed for CBLR filers** via `ratio_defs.suppress_when = {"cblr": true}`.
-
-### `htm_loss_t1` — HTM Unrealized Loss / Tier 1
-
-- **Why deferred:** HTM **fair value** lives on FFIEC Schedule RC-B
-  Memorandum 2. The FDIC API exposes only HTM amortized cost (`SCHA`),
-  not fair value. We need both to compute the unrealized loss.
-- **What's needed:** same FFIEC CDR ingest pipeline as `cet1`. Schedule
-  RC-B Memorandum 2 parser, persist `htm_fair_value` per (cert, quarter).
-- **Post-SVB heuristic:** amber flag at ≥25% of Tier 1 capital.
+Down from 3 at end-of-Day-4. `cet1` and `htm_loss_t1` had their handler
+bodies shipped as part of Task 25 (FFIEC CDR ingest); see
+"Resolved in Task 25" below.
 
 ### `top_loan_cat` — Top Loan Category Concentration
 
@@ -64,6 +44,43 @@ See [`docs/ratios/nim.md`](./ratios/nim.md) for the worked example.
 Same story as NIM: `yield_ea`, `cost_funds`, and `nis` are all
 non-TE. UBPR variants gross up muni / agency yields. Document per peer
 in interview conversation but no methodology change planned.
+
+## Resolved in Task 25 (CDR ingest)
+
+### `cet1` — handler shipped, awaiting first live CDR ZIP
+
+- **Status:** handler is now `return f["CDR_CET1_CAPITAL"] / f["RWAJT"]`.
+  Will produce `data_quality='ok'` once `CDR_CET1_CAPITAL` facts are
+  populated by `peerbench ingest-cdr` (procedure:
+  [`docs/cdr-ingest.md`](./cdr-ingest.md)).
+- **Source field:** FFIEC CDR Schedule RC-R Part I, MDRM `RCOA8274` (pinned
+  in `src/peerbench/ingest/cdr_schema.py`; flagged TODO-verify against a
+  real ZIP at first live ingest).
+- **Suppressed for CBLR filers** via `ratio_defs.suppress_when = {"cblr": true}`.
+
+### `htm_loss_t1` — handler shipped, awaiting first live CDR ZIP
+
+- **Status:** handler is now
+  `return (f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]`. Same gate
+  as `cet1` — needs `CDR_HTM_FAIRVAL` facts populated via
+  `peerbench ingest-cdr`.
+- **Source field:** FFIEC CDR Schedule RC-B Memorandum 2(d), MDRM `RCFD1773`.
+- **Post-SVB heuristic:** amber flag at ≥25% of Tier 1 capital.
+
+## Known tech debt — quarter `source` ambiguity
+
+`quarters.quarter_id` is the sole PK on the `quarters` table, with a
+`source IN ('fdic_api','ffiec_cdr')` CHECK constraint. When the FDIC API
+ingest creates a row for `2025-Q4` tagged `fdic_api`, the subsequent CDR
+ingest for the same quarter cannot insert a second row — the PK collides.
+CDR-sourced facts therefore piggyback on the FDIC-API row, and the
+`quarters.source` column ends up reflecting only the first source seen.
+
+Workaround (not a bug): downstream consumers should not treat
+`quarters.source` as "which source produced this fact." The authoritative
+signal is the `field_code` prefix (`CDR_*` ⇒ CDR-sourced). Resolving
+this cleanly would require a multi-column PK migration on `quarters`,
+which is out of scope for Phase 1.
 
 ## Resolved in Day 4
 

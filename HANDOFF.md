@@ -1,14 +1,15 @@
-# Peerbench — handoff from previous session (2026-05-19, end of Day 4)
+# Peerbench — handoff from previous session (2026-05-19, Task 25 infra landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md` (v1.3) for the project plan and conventions before doing anything substantive.
 
 ## TL;DR
 
-- **Phase 1 is functionally complete.** All four days landed; 27 of 30 ratios shipped and validate to **mean 0.02 bps / max 0.51 bps** across 5 banks × 8 quarters × 13 mapped ratios = 500 comparisons (DoD bar: <2 / <5 bps — PASS). See `docs/validation-snapshot.md`.
+- **Phase 1 ratio coverage at 29/30**, up from 27/30. `cet1` and `htm_loss_t1` handler bodies shipped this session (Task 25); only `top_loan_cat` remains `NotImplementedError`. See `docs/divergences.md`.
+- **FFIEC CDR ingest infrastructure complete.** `peerbench ingest-cdr` reads cached Subject Data Format ZIPs from `cache/cdr/YYYY-Qn.zip`, streams the inner TSVs (RC-R Part I + RC-B Memo 2), maps RSSD→Cert, and upserts CDR-namespaced field codes (`CDR_CET1_CAPITAL`, `CDR_HTM_FAIRVAL`) through the existing on-diff/restatement-detector pipeline.
+- **One manual step remains before validation closes.** FFIEC's bulk endpoint is a form-driven .aspx app that can't be auto-downloaded. The user must stage 8 ZIPs in `cache/cdr/` per [`docs/cdr-ingest.md`](./docs/cdr-ingest.md) before the live-ingest + recompute + validate gate can run. The CLI fails cleanly with full instructions if a ZIP is missing.
 - **Restatement detector is wired and smoke-tested end-to-end.** Synthetic diff → quality_log row + 30 ratios flipped to partial → next compute restores to ok.
-- **3 handlers intentionally `NotImplementedError`**: `cet1`, `htm_loss_t1` (need FFIEC CDR), `top_loan_cat` (needs RC-C field expansion). See `docs/divergences.md`.
-- **35 tests passing.** All Day 4 commits pushed to `origin/main`; HEAD is `bd52169`.
-- **Remaining Phase 1 work:** Task 25 (FFIEC CDR ingest to unblock `cet1` + `htm_loss_t1`). Everything else is Phase 2+.
+- **57 tests passing** (was 43 at HEAD `c5d9ba0`; +14 new CDR parser + schema-map tests this session). All Day 4 commits pushed to `origin/main`; the Task 25 work is uncommitted locally.
+- **Remaining Phase 1 work:** stage CDR ZIPs and run the validation gate. Then `top_loan_cat` (RC-C expansion) — optional, can slide to Phase 2 if the dashboard doesn't surface it in v1.
 
 ## What landed in Day 4 (8 commits, `943b23f`…`bd52169`)
 
@@ -56,23 +57,30 @@ uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 \
 
 ## Known issues / open items
 
-See `docs/divergences.md` — single source of truth for `NotImplementedError` handlers, methodology divergences, resolved-in-Day-4 items, and within-bar residuals.
+See `docs/divergences.md` — single source of truth for `NotImplementedError` handlers, methodology divergences, resolved-in-Day-4 + Task-25 items, and within-bar residuals.
 
 ## Open tasks
 
-- **Task 25 (pending):** Plan-mode for FFIEC CDR ingest. Plan-approved scope: `~/.claude/plans/enter-plan-mode-for-silly-spark.md` §3. Build the CDR ZIP downloader, per-quarter schema map for RC-R Part I (CET1 capital $) and RC-B Memorandum 2 (HTM fair value), streaming TSV parser. Then implement the `cet1` and `htm_loss_t1` handler bodies. Bump AST snapshot. Re-validate.
+- **Task 25 finish-line (manual + verification):** stage the 8 FFIEC CDR Subject Data Format ZIPs per [`docs/cdr-ingest.md`](./docs/cdr-ingest.md), then run:
+  ```bash
+  uv run peerbench ingest-cdr --certs 4063,4214,110,11063,5510 --quarters 8
+  for c in 4063 4214 110 11063 5510; do uv run peerbench compute --cert "$c" --quarters 8; done
+  uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 --write-snapshot docs/validation-snapshot.md
+  ```
+  Expect the snapshot to grow from 13 mapped ratios to 15 (cet1, htm_loss_t1 join) and stay PASS. **First live ingest verifies the MDRM codes** (`RCOA8274`, `RCFD1773`) pinned in `src/peerbench/ingest/cdr_schema.py` — if `cet1` differs from `IDT1CER` by more than a couple bps, the domain prefix (`RCOA` vs `RCFD` vs `RCON`) likely needs adjustment.
 - **`top_loan_cat` (deferred):** expand `src/peerbench/fdic_fields.py` with the rest of RC-C, re-ingest 5 banks, implement handler. Or defer to Phase 2 if the dashboard doesn't surface it in v1.
-- **Phase 2 kickoff:** Next.js 16 dashboard. All ratios are now in the `ratios` table with the right values + restatement flagging; the frontend just needs to render them. See PLAN.md Phase 2 for the design contract and `docs/design.md` for the token spec.
+- **Phase 2 kickoff:** Next.js 16 dashboard. Once cet1/htm ZIPs are staged and ratios recomputed, all 29 Phase-1-mandate ratios will be in the `ratios` table with the right values + restatement flagging; the frontend just needs to render them. See PLAN.md Phase 2 for the design contract and `docs/design.md` for the token spec.
 
 ## How to run things (smoke commands)
 
 `.env.local` is fully populated. Inside the project dir:
 
 ```bash
-uv run pytest                                       # 35 tests
-uv run peerbench info                               # sanity: 30 handlers, 63 fields
+uv run pytest                                       # 57 tests
+uv run peerbench info                               # sanity: 30 handlers, 65 field codes (63 FDIC + 2 CDR)
 uv run peerbench seed-ratios                        # idempotent re-seed of ratio_defs
-uv run peerbench ingest --cert 4063 --quarters 1    # one bank, one quarter
+uv run peerbench ingest --cert 4063 --quarters 1    # FDIC API: one bank, one quarter
+uv run peerbench ingest-cdr --certs 4063 --quarters 1  # CDR ZIPs (cache/cdr/<qid>.zip must be staged)
 uv run peerbench compute --cert 4063 --quarters 1   # compute ratios, persist
 uv run peerbench validate --certs 4063 --quarters 1 # bp diff vs FDIC precomputed
 uv run ruff check src tests
