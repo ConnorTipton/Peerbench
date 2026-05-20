@@ -7,10 +7,10 @@ You are continuing work on Peerbench, Connor's FP&A internship-prep project at `
 - **Phase 1 is functionally complete.** All four days landed; 27 of 30 ratios shipped and validate to **mean 0.02 bps / max 0.51 bps** across 5 banks × 8 quarters × 13 mapped ratios = 500 comparisons (DoD bar: <2 / <5 bps — PASS). See `docs/validation-snapshot.md`.
 - **Restatement detector is wired and smoke-tested end-to-end.** Synthetic diff → quality_log row + 30 ratios flipped to partial → next compute restores to ok.
 - **3 handlers intentionally `NotImplementedError`**: `cet1`, `htm_loss_t1` (need FFIEC CDR), `top_loan_cat` (needs RC-C field expansion). See `docs/divergences.md`.
-- **35 tests passing.** Working tree clean (commits may not yet be pushed — Connor pushes manually).
+- **35 tests passing.** All Day 4 commits pushed to `origin/main`; HEAD is `bd52169`.
 - **Remaining Phase 1 work:** Task 25 (FFIEC CDR ingest to unblock `cet1` + `htm_loss_t1`). Everything else is Phase 2+.
 
-## What landed in Day 4 (commits since `48f08a9`)
+## What landed in Day 4 (8 commits, `943b23f`…`bd52169`)
 
 In dependency order:
 
@@ -19,9 +19,11 @@ In dependency order:
 3. **`feat(validate): peerbench validate CLI + snapshot writer`** (`7c115a2`) — New subcommand; pulls ok ratios + matching FDIC pre-computed, computes per-row bp diffs, writes `docs/validation-snapshot.md`. Reusable for the Phase 3 daily-cron deploy guard. Decimal-clean (added to VALUE_PATH_MODULES). 9 unit tests.
 4. **`feat(ingest): wire on_diff callback to log restatements + mark ratios stale`** (`5ab585f`) — New module `src/peerbench/ingest/quality_log.py`; `make_quality_log_callback(session)` returns the `OnDiffCallback`. Wired into `cli.py:ingest`. 5 unit tests.
 5. **`fix(ratios): loans_deposits uses LNLSNET to match FDIC LNLSDEPR`** (`4180ac1`) — Surprise outlier surfaced by the new validate harness: gross-vs-net loans was producing ~100 bps drift. One-line handler swap. AST snapshot regenerated.
-6. **`docs(validation): post-Day-4 snapshot — PASS (5 banks × 8 quarters)`** (`f00d246`) — The first validation snapshot.
+6. **`docs(validation): post-Day-4 snapshot — PASS (5 banks × 8 quarters)`** (`f00d246`) — First validation snapshot.
+7. **`docs(day-4): NIM worked example + divergences catalog + HANDOFF refresh`** (`551b991`) — `docs/ratios/nim.md` (template for the other 29), `docs/divergences.md` (permanent home for the divergence catalog), and the prior HANDOFF rewrite.
+8. **`docs: fix aggregate mean bps (0.04 -> 0.02) in HANDOFF + divergences`** (`bd52169`) — Stat typo fix to match the actual snapshot.
 
-(Plus the Day 4 docs that ship with this commit batch: `docs/ratios/nim.md` worked example + `docs/divergences.md` permanent home for divergence catalog + this rewrite of HANDOFF.md.)
+**Day 4 lesson learned:** the `loans_deposits` ~100 bps gap (commit 5) was invisible until the validate harness landed in commit 3. Days 1–3 had measured only 9 anchor ratios by manual SQL; the new harness covers all 13 ratios with mapped FDIC codes and is the reason we caught + fixed the gross/net loans discrepancy. Treat `peerbench validate` as the first thing to run when picking up a stale session — it's the fastest "is anything broken?" signal.
 
 ## Database state (live Supabase)
 
@@ -29,7 +31,7 @@ In dependency order:
 - ~2,400 rows in `facts` (5 banks × 8 quarters × 60 fields with values; 60 = 58 + EAMINTAN + NCLNLSR)
 - 5 rows in `institutions` (4063, 4214, 110, 11063, 5510)
 - ~1,200 rows in `ratios` (5 banks × 8 quarters × 30 ratios). Per (cert, quarter): 27 ok + 3 partial in recent quarters, 24 ok + 6 partial in older quarters where some fields are missing.
-- 1 row in `quality_log` — from today's on_diff smoke test (cert 4063, 2025-Q4, NIM, `event_type='restated'`, old=1097000, new=1097635). Audit-trail evidence; safe to leave or delete.
+- 1 row in `quality_log` — from the Day 4 on_diff smoke test (cert 4063, 2025-Q4, NIM, `event_type='restated'`, old=1097000, new=1097635). Real evidence the detector works end-to-end. Safe to leave (it's an audit-trail artifact) or `DELETE FROM quality_log WHERE id=1;` if you want a clean baseline before the next live ingest.
 
 ## 5-bank sample — use these certs
 
@@ -124,12 +126,23 @@ Read these three files in order before touching anything:
 2. `/Users/connortipton/Projects/Peerbench/CLAUDE.md` — conventions
 3. `/Users/connortipton/Projects/Peerbench/docs/divergences.md` — open items + methodology gaps
 
-Then check git state:
+Then **verify the codebase + DB are in the expected clean state** — three quick checks:
 
 ```bash
-git -C /Users/connortipton/Projects/Peerbench log --oneline -10
+# 1. Git: working tree clean, at bd52169 (or beyond)
+git -C /Users/connortipton/Projects/Peerbench log --oneline -3
 git -C /Users/connortipton/Projects/Peerbench status --short
+
+# 2. Tests: should report "35 passed" with no skips
+cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
+
+# 3. Validation gate: should report "PASS" with mean <2 bps, max <5 bps
+cd /Users/connortipton/Projects/Peerbench && \
+  uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 \
+    --write-snapshot docs/validation-snapshot.md 2>&1 | tail -3
 ```
+
+If any of those three diverge from the expected state, stop and surface to the user before doing substantive work — something landed between this handoff and now (FDIC restatement, manual edit, etc.).
 
 Then ask the user what they want to do. Most likely menu:
 - **(a)** Task 25: open plan-mode for FFIEC CDR ingest. Biggest remaining Phase 1 piece — unlocks `cet1` and `htm_loss_t1`.
