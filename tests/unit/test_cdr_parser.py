@@ -199,11 +199,8 @@ def test_iter_schedule_rows_raises_when_required_column_missing(tmp_path: Path) 
 
 
 def test_iter_schedule_rows_fans_in_across_split_files(tmp_path: Path) -> None:
-    """RCB ships split as `(1 of 2).txt` + `(2 of 2).txt` in real FFIEC
-    ZIPs (confirmed in cache/cdr/2025-Q4.zip). Banks are row-split: First-
-    Citizens is in part 1; some of the 5-bank sample lands in part 2. The
-    parser must iterate ALL matching members so no bank is silently dropped.
-    """
+    """Row-split shape: both parts share the target column. The parser must
+    iterate ALL matching members so no bank is silently dropped."""
     zip_path = tmp_path / "2025-Q4.zip"
     rcb_part1 = "IDRSSD\tRCFD1773\n11111\t100\n22222\t200\n"
     rcb_part2 = "IDRSSD\tRCFD1773\n33333\t300\n44444\t400\n"
@@ -218,6 +215,63 @@ def test_iter_schedule_rows_fans_in_across_split_files(tmp_path: Path) -> None:
     rows = list(client.iter_schedule_rows("2025-Q4", "RCB"))
     rssds = {r["IDRSSD"] for r in rows}
     assert rssds == {"11111", "22222", "33333", "44444"}
+
+
+def test_iter_schedule_rows_skips_members_lacking_required_columns(tmp_path: Path) -> None:
+    """Column-split shape (real RC-B 2025-Q4 layout): part 1 has the
+    target MDRM, part 2 carries a disjoint set of memorandum-item MDRMs.
+    With `required_columns=((target,),)` the parser must SKIP part 2
+    rather than fail — but still raise loudly if NO member has the
+    target across all candidates."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    # Part 1: target column present (4 banks).
+    rcb_part1 = "IDRSSD\tRCFD1773\n11111\t100\n22222\t200\n"
+    # Part 2: same banks but different MDRMs (no RCFD1773).
+    rcb_part2 = "IDRSSD\tRCONG349\n11111\t9\n22222\t8\n"
+    _make_zip(
+        zip_path,
+        {
+            "FFIEC CDR Call Schedule RCB 12312025(1 of 2).txt": rcb_part1,
+            "FFIEC CDR Call Schedule RCB 12312025(2 of 2).txt": rcb_part2,
+        },
+    )
+    client = CdrClient(cache_dir=tmp_path)
+    rows = list(
+        client.iter_schedule_rows(
+            "2025-Q4",
+            "RCB",
+            required_columns=(("IDRSSD",), ("RCFD1773",)),
+        )
+    )
+    assert len(rows) == 2
+    assert {r["IDRSSD"] for r in rows} == {"11111", "22222"}
+    assert all(r["RCFD1773"] in {"100", "200"} for r in rows)
+
+
+def test_iter_schedule_rows_raises_when_no_member_has_required(tmp_path: Path) -> None:
+    """Multi-file ZIP where NO matching member has the required MDRM —
+    e.g. live ZIP uses a brand-new domain prefix family across both parts.
+    Must fail loudly so the schema map gets updated."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    # Both parts lack RCFD1773 entirely.
+    part1 = "IDRSSD\tRCFD0211\n11111\t1\n"
+    part2 = "IDRSSD\tRCONG349\n11111\t2\n"
+    _make_zip(
+        zip_path,
+        {
+            "FFIEC CDR Call Schedule RCB 12312025(1 of 2).txt": part1,
+            "FFIEC CDR Call Schedule RCB 12312025(2 of 2).txt": part2,
+        },
+    )
+    client = CdrClient(cache_dir=tmp_path)
+    with pytest.raises(ValueError, match="missing required column"):
+        list(
+            client.iter_schedule_rows(
+                "2025-Q4",
+                "RCB",
+                required_columns=(("RCFD1773",),),
+            )
+        )
 
 
 def test_required_columns_group_satisfied_by_any_candidate(tmp_path: Path) -> None:

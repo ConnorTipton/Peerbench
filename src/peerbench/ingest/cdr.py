@@ -130,14 +130,22 @@ class CdrClient:
         (MDRM codes). Values stay as raw strings — callers convert.
 
         `required_columns` is a tuple of candidate groups; each group must
-        be satisfied by at least one column present in the file header.
-        Use this to catch domain-prefix drift (RCON/RCOA/RCFD) without
-        rejecting populations where only one of two candidates is present
-        (e.g. `RCOAP859` for domestic-only banks, `RCFAP859` for foreign-
-        office banks — `required_columns=(("RCOAP859", "RCFAP859"),)`
-        passes for either population but fails if neither is in the header).
+        be satisfied (by at least one column present in the file header)
+        for that file's rows to be streamed. Use this to catch domain-
+        prefix drift (RCON/RCOA/RCFD) without rejecting populations where
+        only one of two candidates is present (e.g. `RCOAP859` for
+        domestic-only banks, `RCFAP859` for foreign-office banks —
+        `required_columns=(("RCOAP859", "RCFAP859"),)` passes for either
+        population but fails if neither is in any candidate member).
 
-        Empty `required_columns` performs no header check.
+        Multi-file schedules (e.g. RC-B 2025-Q4 ships as `(1 of 2).txt` +
+        `(2 of 2).txt` with disjoint MDRM sets) are handled by per-member
+        skipping: members lacking the required columns are skipped, others
+        contribute their rows. If NO matching member satisfies the groups,
+        the parser raises `ValueError` so layout drift surfaces loudly.
+
+        Empty `required_columns` performs no header check; all matching
+        members are streamed unconditionally.
         """
         zip_path = self.get_zip_path(quarter_id)
         with zipfile.ZipFile(zip_path) as zf:
@@ -148,28 +156,40 @@ class CdrClient:
                 len(members),
                 schedule_pattern,
             )
+            any_streamed = False
+            skipped: list[tuple[str, list[tuple[str, ...]]]] = []
             for member in members:
-                logger.info("  member: %s", member)
                 with zf.open(member) as raw:
                     text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
                     reader = csv.DictReader(text, delimiter="\t")
-                    header_validated = not required_columns
-                    for row in reader:
-                        if not header_validated:
-                            missing_groups = [
-                                grp for grp in required_columns if not any(c in row for c in grp)
-                            ]
-                            if missing_groups:
-                                seen = sorted(row.keys())
-                                msg = (
-                                    f"Schedule {member!r} is missing required "
-                                    f"column(s) from group(s) {missing_groups}; "
-                                    f"header had {len(seen)} column(s) "
-                                    f"(first 10: {seen[:10]})"
-                                )
-                                raise ValueError(msg)
-                            header_validated = True
-                        yield row
+                    fieldnames = reader.fieldnames or []
+                    if required_columns:
+                        missing_groups = [
+                            grp for grp in required_columns if not any(c in fieldnames for c in grp)
+                        ]
+                        if missing_groups:
+                            logger.info(
+                                "  skipping member (missing %s): %s",
+                                missing_groups,
+                                member,
+                            )
+                            skipped.append((member, missing_groups))
+                            continue
+                    logger.info("  member: %s", member)
+                    any_streamed = True
+                    yield from reader
+            if required_columns and not any_streamed:
+                detail = (
+                    "; ".join(f"{m!r} missing {grps}" for m, grps in skipped)
+                    or "no matching members in ZIP"
+                )
+                msg = (
+                    f"No member matching {schedule_pattern!r} in "
+                    f"{zip_path.name} had all required column group(s) "
+                    f"{list(required_columns)} — missing required column(s) "
+                    f"in every candidate. Tried: {detail}"
+                )
+                raise ValueError(msg)
 
     @staticmethod
     def _find_members(zf: zipfile.ZipFile, schedule_pattern: str) -> list[str]:
