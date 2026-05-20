@@ -25,12 +25,12 @@ export function AnchorSelect({ institutions, anchorCert }: Props) {
   }
 
   return (
-    <label className="inline-flex items-center gap-2 text-[length:var(--text-body)] text-[color:var(--color-text-secondary)]">
+    <label className="inline-flex items-center gap-2 text-body text-text-secondary">
       Anchor
       <select
         value={String(anchorCert)}
         onChange={onChange}
-        className="rounded-sm border border-[color:var(--color-border)] bg-[color:var(--color-surface)] px-2 py-1 text-[length:var(--text-body)] text-[color:var(--color-text)] focus:border-[color:var(--color-accent)] focus:outline-hidden"
+        className="rounded-sm border border-border bg-surface px-2 py-1 text-body text-text focus:border-accent focus:outline-hidden"
       >
         {institutions.map((inst) => (
           <option key={inst.cert} value={String(inst.cert)}>

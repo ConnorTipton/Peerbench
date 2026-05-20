@@ -24,10 +24,8 @@ export default async function HomePage({
   return (
     <main className="px-6 py-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
-        <h1 className="text-[length:var(--text-page-title)] font-semibold text-[color:var(--color-primary)]">
-          Peerbench
-        </h1>
-        <span className="text-[length:var(--text-body)] text-[color:var(--color-text-secondary)]">
+        <h1 className="text-page-title font-semibold text-primary">Peerbench</h1>
+        <span className="text-body text-text-secondary">
           As of {formatReportDate(data.quarter.report_date)}
         </span>
       </header>

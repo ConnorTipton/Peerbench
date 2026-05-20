@@ -5,6 +5,7 @@ import {
   getCoreRowModel,
   useReactTable,
   type ColumnDef,
+  type RowData,
 } from "@tanstack/react-table";
 import { useMemo } from "react";
 
@@ -17,6 +18,16 @@ import {
 } from "@/lib/matrix-types";
 import { EM_DASH, formatRatio } from "@/lib/format";
 import type { Institution, Quarter, RatioCategory, RatioDef } from "@/types/db";
+
+// Carry the cert on each peer column so anchor-column detection doesn't
+// depend on `institutions[i - 1]` — a positional read that silently breaks
+// if column order changes (e.g. when a per-peer sort lands in Sprint 2).
+declare module "@tanstack/react-table" {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface ColumnMeta<TData extends RowData, TValue> {
+    cert?: number;
+  }
+}
 
 type Row =
   | { kind: "section"; category: RatioCategory }
@@ -65,13 +76,13 @@ export function RatioMatrix({
         const r = row.original;
         if (r.kind === "section") {
           return (
-            <span className="text-[length:var(--text-section-header)] font-semibold text-[color:var(--color-text)]">
+            <span className="text-section-header font-semibold text-text">
               {CATEGORY_LABELS[r.category]}
             </span>
           );
         }
         return (
-          <span className="text-[length:var(--text-table-data)] text-[color:var(--color-text)]">
+          <span className="text-table-data text-text">
             {r.def.display_name}
           </span>
         );
@@ -79,12 +90,11 @@ export function RatioMatrix({
     };
     const peerColumns: ColumnDef<Row>[] = institutions.map((inst) => ({
       id: `inst-${inst.cert}`,
+      meta: { cert: inst.cert },
       header: () => (
-        <span className="block text-right text-[length:var(--text-table-data)] font-semibold">
-          <span className="block text-[color:var(--color-text)]">{inst.name}</span>
-          <span className="block text-[color:var(--color-text-tertiary)]">
-            Cert {inst.cert}
-          </span>
+        <span className="block text-right text-table-data font-semibold">
+          <span className="block text-text">{inst.name}</span>
+          <span className="block text-text-tertiary">Cert {inst.cert}</span>
         </span>
       ),
       cell: ({ row }) => {
@@ -101,22 +111,23 @@ export function RatioMatrix({
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
   return (
-    <div className="overflow-auto border border-[color:var(--color-border)]">
+    <div className="overflow-auto border border-border">
       <table className="border-collapse w-full">
-        <thead className="bg-[color:var(--color-surface)]">
+        <thead className="bg-surface">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
-              {hg.headers.map((h, i) => {
-                const isRatioCol = i === 0;
-                const isAnchorCol = !isRatioCol && institutions[i - 1]?.cert === anchorCert;
+              {hg.headers.map((h) => {
+                const isRatioCol = h.column.id === "ratio";
+                const isAnchorCol =
+                  !isRatioCol && h.column.columnDef.meta?.cert === anchorCert;
                 return (
                   <th
                     key={h.id}
                     scope="col"
                     className={[
-                      "sticky top-0 p-2 border-b border-[color:var(--color-border)]",
+                      "sticky top-0 p-2 border-b border-border",
                       isRatioCol
-                        ? "left-0 z-30 text-left min-w-60 border-r border-[color:var(--color-border)]"
+                        ? "left-0 z-30 text-left min-w-60 border-r border-border"
                         : "z-20 text-right min-w-40",
                     ].join(" ")}
                     style={{
@@ -140,9 +151,9 @@ export function RatioMatrix({
                 <tr key={row.id}>
                   <td
                     colSpan={columns.length}
-                    className="sticky left-0 p-2 border-y border-[color:var(--color-border)] bg-[color:var(--color-surface-alt)]"
+                    className="sticky left-0 p-2 border-y border-border bg-surface-alt"
                   >
-                    <span className="text-[length:var(--text-section-header)] font-semibold uppercase tracking-wide text-[color:var(--color-text-secondary)]">
+                    <span className="text-section-header font-semibold uppercase tracking-wide text-text-secondary">
                       {CATEGORY_LABELS[r.category]}
                     </span>
                   </td>
@@ -154,10 +165,10 @@ export function RatioMatrix({
               rowIdx % 2 === 0 ? "var(--color-surface)" : "var(--color-surface-alt)";
             return (
               <tr key={row.id}>
-                {row.getVisibleCells().map((cell, i) => {
-                  const isRatioCol = i === 0;
+                {row.getVisibleCells().map((cell) => {
+                  const isRatioCol = cell.column.id === "ratio";
                   const isAnchorCol =
-                    !isRatioCol && institutions[i - 1]?.cert === anchorCert;
+                    !isRatioCol && cell.column.columnDef.meta?.cert === anchorCert;
                   const cellBg = isAnchorCol
                     ? "color-mix(in srgb, var(--color-primary) 6%, " + zebra + ")"
                     : zebra;
@@ -165,9 +176,9 @@ export function RatioMatrix({
                     <td
                       key={cell.id}
                       className={[
-                        "py-1 px-2 border-b border-[color:var(--color-border)] text-[length:var(--text-table-data)]",
+                        "py-1 px-2 border-b border-border text-table-data",
                         isRatioCol
-                          ? "sticky left-0 z-10 text-left border-r border-[color:var(--color-border)]"
+                          ? "sticky left-0 z-10 text-left border-r border-border"
                           : "text-right",
                       ].join(" ")}
                       style={{ background: cellBg }}
@@ -187,9 +198,7 @@ export function RatioMatrix({
 
 function DataCell({ cell, restated }: { cell: MatrixCell | undefined; restated: boolean }) {
   if (!cell) {
-    return (
-      <span className="text-[color:var(--color-text-tertiary)]">{EM_DASH}</span>
-    );
+    return <span className="text-text-tertiary">{EM_DASH}</span>;
   }
   const formatted = formatRatio(cell.value);
   const isNegative = cell.value !== null && cell.value < 0;
@@ -203,7 +212,7 @@ function DataCell({ cell, restated }: { cell: MatrixCell | undefined; restated: 
       {restated && (
         <sup
           title="Restated since first publication — see quality_log"
-          className="ml-0.5 text-[color:var(--color-text-secondary)]"
+          className="ml-0.5 text-text-secondary"
         >
           r
         </sup>
@@ -212,7 +221,7 @@ function DataCell({ cell, restated }: { cell: MatrixCell | undefined; restated: 
         <span
           aria-label={DATA_QUALITY_LABEL[cell.data_quality]}
           title={DATA_QUALITY_LABEL[cell.data_quality]}
-          className="ml-1 inline-block w-1.5 h-1.5 rounded-full align-middle bg-[color:var(--color-text-tertiary)]"
+          className="ml-1 inline-block w-1.5 h-1.5 rounded-full align-middle bg-text-tertiary"
         />
       )}
     </span>
