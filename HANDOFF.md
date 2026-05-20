@@ -1,4 +1,4 @@
-# Peerbench — handoff from previous session (2026-05-19, Task 25 infra landed)
+# Peerbench — handoff from previous session (2026-05-19, Task 25 shipped + pushed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md` (v1.3) for the project plan and conventions before doing anything substantive.
 
@@ -8,7 +8,7 @@ You are continuing work on Peerbench, Connor's FP&A internship-prep project at `
 - **FFIEC CDR ingest infrastructure complete.** `peerbench ingest-cdr` reads cached Subject Data Format ZIPs from `cache/cdr/YYYY-Qn.zip`, streams the inner TSVs (RC-R Part I + RC-B Memo 2), maps RSSD→Cert, and upserts CDR-namespaced field codes (`CDR_CET1_CAPITAL`, `CDR_HTM_FAIRVAL`) through the existing on-diff/restatement-detector pipeline.
 - **One manual step remains before validation closes.** FFIEC's bulk endpoint is a form-driven .aspx app that can't be auto-downloaded. The user must stage 8 ZIPs in `cache/cdr/` per [`docs/cdr-ingest.md`](./docs/cdr-ingest.md) before the live-ingest + recompute + validate gate can run. The CLI fails cleanly with full instructions if a ZIP is missing.
 - **Restatement detector is wired and smoke-tested end-to-end.** Synthetic diff → quality_log row + 30 ratios flipped to partial → next compute restores to ok.
-- **57 tests passing** (was 43 at HEAD `c5d9ba0`; +14 new CDR parser + schema-map tests this session). All Day 4 commits pushed to `origin/main`; the Task 25 work is uncommitted locally.
+- **57 tests passing** (was 43; +14 new CDR parser + schema-map tests this session). Task 25 squashed into one commit (`8957249`) and pushed to `origin/main`. Working tree clean.
 - **Remaining Phase 1 work:** stage CDR ZIPs and run the validation gate. Then `top_loan_cat` (RC-C expansion) — optional, can slide to Phase 2 if the dashboard doesn't surface it in v1.
 
 ## What landed in Day 4 (8 commits, `943b23f`…`bd52169`)
@@ -25,6 +25,26 @@ In dependency order:
 8. **`docs: fix aggregate mean bps (0.04 -> 0.02) in HANDOFF + divergences`** (`bd52169`) — Stat typo fix to match the actual snapshot.
 
 **Day 4 lesson learned:** the `loans_deposits` ~100 bps gap (commit 5) was invisible until the validate harness landed in commit 3. Days 1–3 had measured only 9 anchor ratios by manual SQL; the new harness covers all 13 ratios with mapped FDIC codes and is the reason we caught + fixed the gross/net loans discrepancy. Treat `peerbench validate` as the first thing to run when picking up a stale session — it's the fastest "is anything broken?" signal.
+
+## What landed in Task 25 (1 squash commit, `8957249`)
+
+**`feat(ingest): FFIEC CDR ingest path + cet1/htm_loss_t1 handlers (Task 25)`**
+
+In one commit, scoped to the plan at `~/.claude/plans/okay-look-at-synthetic-wand.md`:
+
+- New `src/peerbench/ingest/cdr.py` — `CdrClient` (cache-first; `CdrZipNotCachedError` with manual-download instructions) + memory-safe TSV streaming via `iter_schedule_rows()`.
+- New `src/peerbench/ingest/cdr_schema.py` — per-quarter MDRM lookup (`cdr_column("2025-Q4", "CET1_CAPITAL") → "RCOA8274"`); covers 2024-Q1 through 2025-Q4 for `CET1_CAPITAL` (RC-R Part I) and `HTM_FAIRVAL` (RC-B Memo 2).
+- New `peerbench ingest-cdr --certs … --quarters N` CLI subcommand. Resolves RSSD→Cert via existing `RSSDID` facts; reuses `upsert_fact` + `make_quality_log_callback` so the restatement detector covers CDR fields too.
+- `src/peerbench/fdic_fields.py` — new `CDR_FIELDS` tuple; semantics of `all_fields()` tightened to "FDIC API only"; new `all_field_codes()` for the union. `peerbench info` now reports `65 (63 FDIC API + 2 CDR)`.
+- `src/peerbench/ratio_engine/handlers/{capital,liquidity}.py` — `cet1` and `htm_loss_t1` bodies shipped:
+  - `cet1`: `f["CDR_CET1_CAPITAL"] / f["RWAJT"]`
+  - `htm_loss_t1`: `(f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]`
+  - AST snapshot regenerated; versions stay at `"v1"`.
+- 14 new unit tests (`tests/unit/test_cdr_parser.py`, `test_cdr_schema.py`) against synthetic fixture ZIPs.
+- New `docs/cdr-ingest.md` — the authoritative manual-download procedure. Reference for the gate that's blocking validation.
+- `.gitignore` ignores `cache/` so multi-hundred-MB CDR ZIPs never enter the repo.
+
+**Plan deviation worth flagging:** the plan called for an HTTP fetch in `CdrClient.fetch_zip()`. FFIEC's bulk endpoint is a form-driven ASP.NET app with VIEWSTATE + cookies — no plain GET works. Pivoted to cache-first; ZIPs are staged manually per `docs/cdr-ingest.md`. The CLI fails cleanly (exit 2) with full instructions if a ZIP is missing — confirmed by running `peerbench ingest-cdr --certs 4063 --quarters 1` before commit. Auto-download (Selenium / FFIEC machine-to-machine API) is documented as a Phase 3 option.
 
 ## Database state (live Supabase)
 
@@ -129,19 +149,20 @@ PY
 
 ## Recommended first action
 
-Read these three files in order before touching anything:
+Read these four files in order before touching anything:
 1. `/Users/connortipton/Projects/Peerbench/PLAN.md` — project plan v1.3
 2. `/Users/connortipton/Projects/Peerbench/CLAUDE.md` — conventions
 3. `/Users/connortipton/Projects/Peerbench/docs/divergences.md` — open items + methodology gaps
+4. `/Users/connortipton/Projects/Peerbench/docs/cdr-ingest.md` — manual CDR ZIP staging procedure (new this session)
 
 Then **verify the codebase + DB are in the expected clean state** — three quick checks:
 
 ```bash
-# 1. Git: working tree clean, at bd52169 (or beyond)
+# 1. Git: working tree clean, at 8957249 (or beyond)
 git -C /Users/connortipton/Projects/Peerbench log --oneline -3
 git -C /Users/connortipton/Projects/Peerbench status --short
 
-# 2. Tests: should report "35 passed" with no skips
+# 2. Tests: should report "57 passed" with no skips
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 
 # 3. Validation gate: should report "PASS" with mean <2 bps, max <5 bps
@@ -153,9 +174,9 @@ cd /Users/connortipton/Projects/Peerbench && \
 If any of those three diverge from the expected state, stop and surface to the user before doing substantive work — something landed between this handoff and now (FDIC restatement, manual edit, etc.).
 
 Then ask the user what they want to do. Most likely menu:
-- **(a)** Task 25: open plan-mode for FFIEC CDR ingest. Biggest remaining Phase 1 piece — unlocks `cet1` and `htm_loss_t1`.
-- **(b)** Phase 2 kickoff: scaffold the Next.js 16 dashboard. Phase 1 data is ready and validated.
-- **(c)** `top_loan_cat`: expand RC-C field ingest and implement the handler. Smaller chunk, can slot in before or alongside Task 25.
+- **(a)** Task 25 finish-line — verify the CDR ZIPs exist in `cache/cdr/2024-Q1.zip … 2025-Q4.zip` (8 files). If yes, run the ingest-cdr → compute → validate trio (see "Open tasks" above). If no, point the user at `docs/cdr-ingest.md` and wait. Expected snapshot: 15 mapped ratios, still PASS. **First-pass risk:** MDRM domain prefix (`RCOA` vs `RCFD` vs `RCON`) — if `cet1` differs from `IDT1CER` by >2 bps, edit `_STABLE` in `src/peerbench/ingest/cdr_schema.py` and re-ingest.
+- **(b)** Phase 2 kickoff: scaffold the Next.js 16 dashboard. Sensible if user wants to defer the CDR staging or work in parallel. The 27 already-`ok` ratios are enough to start rendering.
+- **(c)** `top_loan_cat`: expand RC-C field ingest and implement the handler. Smaller chunk, easy slot-in. Or formally defer to Phase 2 if the dashboard cut doesn't surface it.
 
 ## User context / preferences (from memory)
 
