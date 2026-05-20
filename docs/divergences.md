@@ -45,26 +45,78 @@ Same story as NIM: `yield_ea`, `cost_funds`, and `nis` are all
 non-TE. UBPR variants gross up muni / agency yields. Document per peer
 in interview conversation but no methodology change planned.
 
+## Resolved in 2026-05-20 CDR data-quality fix
+
+The first live FFIEC CDR ingest surfaced three concrete bugs in the
+ingest path that together pushed `cet1` mean abs to 19.82 bps / max
+82.47 bps — well outside the <2/<5 DoD bar. Fixed in one PR:
+
+### 1. CET1 MDRM corrected: `RCOA8274 → RCOAP859 / RCFAP859`
+
+`RCOA8274` is pre-CECL Tier 1 capital amount, not CET1. Empirical
+verification against Bank OZK (cert 110): `RCOAP859/RWAJT = 11.7244%`
+matches FDIC `IDT1CER` to fractions of a bp; `RCOA8274/RWAJT = 12.4961%`
+(77 bps drift, attributable to Bank OZK's AT1 preferred stock).
+
+### 2. Multi-column candidate lookup (domain-prefix fallback)
+
+FFIEC RC-R and RC-B schedules ship per-bank values under domain-specific
+MDRM prefixes: `RCOA*` / `RCFD*` for consolidated reporting (banks with
+foreign offices), `RCFA*` / `RCON*` for domestic-only filers. Of the
+5-bank sample, only First-Citizens (cert 11063) has foreign offices and
+uses the consolidated columns; the other 4 use the domestic-only
+columns. The schema map `cdr_schema.cdr_columns()` now returns a tuple
+of candidate MDRMs per `(quarter, label)`. `cli.py:ingest_cdr` walks the
+tuple via `pick_first_non_empty(row, candidates)` and takes the first
+non-empty value per row. The post-Task-25 header check is preserved but
+extended to "at least one column per group satisfied per file, at least
+one matching file across all candidate members" — layout drift still
+fails loudly.
+
+Schema map current state (2025-Q4):
+
+- `CET1_CAPITAL → ("RCOAP859", "RCFAP859")`
+- `HTM_FAIRVAL → ("RCFD1773", "RCON1773")`
+
+### 3. Multi-file fan-in for RC-B (column-split)
+
+RC-B in 2025-Q4 ships as `Schedule RCB 12312025(1 of 2).txt` (4395 rows,
+242 columns including `RCFD1773` / `RCON1773`) + `(2 of 2).txt` (4395
+rows, 62 disjoint `RCONG*` memorandum-item columns). `_find_member`
+returned only the first match and emitted a warning; the post-Task-25
+strict header check then refused to read part 2 outright. `_find_members`
+(plural) now enumerates all matching members; `iter_schedule_rows`
+streams each member's rows only if its header satisfies the required
+column groups, and raises `ValueError` only when NO matching member
+satisfies them.
+
+No handler bodies changed — all `version="v1"` per the Phase 1 contract.
+Decimal end-to-end preserved.
+
 ## Resolved in Task 25 (CDR ingest)
 
-### `cet1` — handler shipped, awaiting first live CDR ZIP
+### `cet1` — fully resolved (Task 25 + 2026-05-20 fix)
 
-- **Status:** handler is now `return f["CDR_CET1_CAPITAL"] / f["RWAJT"]`.
-  Will produce `data_quality='ok'` once `CDR_CET1_CAPITAL` facts are
-  populated by `peerbench ingest-cdr` (procedure:
-  [`docs/cdr-ingest.md`](./cdr-ingest.md)).
-- **Source field:** FFIEC CDR Schedule RC-R Part I, MDRM `RCOA8274` (pinned
-  in `src/peerbench/ingest/cdr_schema.py`; flagged TODO-verify against a
-  real ZIP at first live ingest).
+- **Status:** ok across the 5 banks × 8 quarters grid; bp-diff vs FDIC
+  `IDT1CER` is 0.00 mean / 0.00 max in the validation snapshot. Handler
+  body `return f["CDR_CET1_CAPITAL"] / f["RWAJT"]` unchanged from Task 25.
+- **Source field:** FFIEC CDR Schedule RC-R Part I.A line 26, MDRM `P859`
+  with domain-prefix candidates `RCOAP859` (domestic-only filers) and
+  `RCFAP859` (filers with foreign offices). Pinned in
+  `src/peerbench/ingest/cdr_schema.py`.
 - **Suppressed for CBLR filers** via `ratio_defs.suppress_when = {"cblr": true}`.
 
-### `htm_loss_t1` — handler shipped, awaiting first live CDR ZIP
+### `htm_loss_t1` — fully resolved (Task 25 + 2026-05-20 fix)
 
-- **Status:** handler is now
-  `return (f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]`. Same gate
-  as `cet1` — needs `CDR_HTM_FAIRVAL` facts populated via
-  `peerbench ingest-cdr`.
-- **Source field:** FFIEC CDR Schedule RC-B Memorandum 2(d), MDRM `RCFD1773`.
+- **Status:** ok across the 5 banks × 8 quarters grid. Handler body
+  `max(0, f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]` unchanged.
+- **Source field:** FFIEC CDR Schedule RC-B Memorandum 2(d), MDRM `1773`
+  with domain-prefix candidates `RCFD1773` (consolidated; foreign-office
+  banks) and `RCON1773` (domestic only).
+- **No FDIC pre-computed counterpart** — htm_loss_t1 is a post-SVB
+  heuristic, not a regulator-published ratio. Validation success means
+  `data_quality='ok'` for all 40 cells (it does not appear in the bp-diff
+  comparison table).
 - **Post-SVB heuristic:** amber flag at ≥25% of Tier 1 capital.
 
 ## Known tech debt — quarter `source` ambiguity
