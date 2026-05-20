@@ -1,11 +1,12 @@
 """Peerbench CLI.
 
 Commands:
-  peerbench seed-ratios     — Upsert data/ratios.csv into the ratio_defs table.
-  peerbench ingest          — Fetch FDIC API facts for a bank-quarter.
-  peerbench ingest-cdr      — Read FFIEC CDR ZIPs and upsert CDR_* fields.
-  peerbench compute         — Compute ratios for a bank-quarter and persist.
-  peerbench info            — Quick sanity dump of registry + config.
+  peerbench seed-ratios        — Upsert data/ratios.csv into the ratio_defs table.
+  peerbench ingest             — Fetch FDIC API facts for a bank-quarter.
+  peerbench ingest-cdr         — Read FFIEC CDR ZIPs and upsert CDR_* fields.
+  peerbench compute            — Compute ratios for a bank-quarter and persist.
+  peerbench info               — Quick sanity dump of registry + config.
+  peerbench export-field-deps  — Regenerate the handler field-dependency JSON.
 """
 
 from __future__ import annotations
@@ -379,6 +380,40 @@ def validate(
         typer.echo(f"wrote snapshot to {write_snapshot_to}")
     if gate.startswith("FAIL"):
         raise typer.Exit(code=1)
+
+
+@app.command("export-field-deps")
+def export_field_deps(
+    out: Annotated[
+        Path,
+        typer.Option(
+            "--out",
+            help="Where to write the snapshot. Defaults to web/lib/ratio-field-deps.generated.json.",
+        ),
+    ] = Path("web/lib/ratio-field-deps.generated.json"),
+) -> None:
+    """Regenerate the handler field-dependency snapshot.
+
+    Walks every registered handler's AST, extracts the FFIEC field codes each
+    one reads off the FactView, and writes a JSON map keyed by ratio_id. The
+    snapshot feeds both the dashboard's per-cell restatement marker and the
+    pipeline's restatement-detector partial flip, so both layers share a single
+    source of truth derived from the handler bodies.
+
+    The committed JSON is treated as a contract: the matching test in
+    ``tests/contract/test_ratio_registry.py`` re-runs extraction and fails if
+    the snapshot is stale. Run this command after any handler edit that touches
+    field references.
+    """
+    import json
+
+    from peerbench.ratio_engine.field_deps import extract_field_deps
+
+    deps = extract_field_deps()
+    payload = {rid: sorted(fields) for rid, fields in sorted(deps.items())}
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(json.dumps(payload, indent=2) + "\n")
+    typer.echo(f"wrote {len(payload)} ratios -> {out}")
 
 
 @app.command("info")
