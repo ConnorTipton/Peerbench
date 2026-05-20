@@ -60,6 +60,10 @@ def test_cet1_has_both_domain_prefix_candidates() -> None:
     assert cdr_columns("2025-Q4", "CET1_CAPITAL") == ("RCOAP859", "RCFAP859")
 
 
-def test_htm_fairval_is_rcfd_only() -> None:
-    """RC-B Memo 2(d) HTM fair value ships under RCFD only (consolidated)."""
-    assert cdr_columns("2025-Q4", "HTM_FAIRVAL") == ("RCFD1773",)
+def test_htm_fairval_has_both_domain_prefix_candidates() -> None:
+    """RC-B Memo 2(d) HTM fair value also splits by domain: foreign-office
+    banks populate `RCFD1773` (consolidated), domestic-only banks populate
+    `RCON1773`. Empirically confirmed against the 2025-Q4 ZIP: only
+    First-Citizens (cert 11063) reports RCFD1773; the other 4 sample banks
+    use RCON1773."""
+    assert cdr_columns("2025-Q4", "HTM_FAIRVAL") == ("RCFD1773", "RCON1773")

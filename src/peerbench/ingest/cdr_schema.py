@@ -69,8 +69,13 @@ _STABLE: dict[str, tuple[str, ...]] = {
     #   RCOAP859 — domestic-only filers (no foreign offices)
     #   RCFAP859 — filers with foreign offices (e.g. First-Citizens)
     "CET1_CAPITAL": ("RCOAP859", "RCFAP859"),
-    # RC-B Memorandum 2(d): HTM securities fair value, $.
-    "HTM_FAIRVAL": ("RCFD1773",),
+    # RC-B Memorandum 2(d): HTM securities fair value, $. Domain split:
+    #   RCFD1773 — consolidated (foreign-office banks; equal to RCON1773
+    #              when foreign HTM is zero — e.g. First-Citizens reports
+    #              both as 31790000 in 2025-Q4)
+    #   RCON1773 — domestic only (the 4 of 5 sample banks without foreign
+    #              offices populate this and leave RCFD1773 blank)
+    "HTM_FAIRVAL": ("RCFD1773", "RCON1773"),
 }
 
 _OVERRIDES: dict[tuple[str, str], tuple[str, ...]] = {
