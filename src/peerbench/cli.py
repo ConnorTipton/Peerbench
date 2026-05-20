@@ -37,7 +37,7 @@ from peerbench.ratio_engine.compute import (
     compute_all_for_bank_quarter,
     load_fact_view,
 )
-from peerbench.validate import compare_to_fdic, format_table, write_snapshot
+from peerbench.validate import compare_to_fdic, evaluate_gate, format_table, write_snapshot
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -246,19 +246,22 @@ def validate(
     typer.echo(
         f"\nExcluded: {exclusions.no_fdic_code} no-FDIC-code, "
         f"{exclusions.not_ok_quality} not-ok, "
-        f"{exclusions.missing_fdic_fact} missing-FDIC-fact"
+        f"{exclusions.missing_fdic_fact} missing-FDIC-fact, "
+        f"{exclusions.missing_ratio_row} missing-ratio-row"
     )
+    gate, mean, mx = evaluate_gate(comparisons, exclusions)
+    typer.echo(f"\nGate: {gate}  (N={len(comparisons)}, mean={mean:.2f} bps, max={mx:.2f} bps)")
     if write_snapshot_to:
-        gate = write_snapshot(
+        write_snapshot(
             comparisons,
             exclusions,
             Path(write_snapshot_to),
             certs=cert_list,
             quarter_ids=qids,
         )
-        typer.echo(f"\nwrote snapshot to {write_snapshot_to}: {gate}")
-        if gate.startswith("FAIL"):
-            raise typer.Exit(code=1)
+        typer.echo(f"wrote snapshot to {write_snapshot_to}")
+    if gate.startswith("FAIL"):
+        raise typer.Exit(code=1)
 
 
 @app.command("info")

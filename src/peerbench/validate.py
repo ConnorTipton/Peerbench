@@ -48,6 +48,7 @@ class ExclusionStats:
     no_fdic_code: int  # ratio_def has no fdic_precomputed_code
     not_ok_quality: int  # our ratio row exists but data_quality != 'ok'
     missing_fdic_fact: int  # ratio mapped to a code but the fact row is missing/None
+    missing_ratio_row: int = 0  # expected (cert, quarter, mapped_ratio_id) had no ratios row at all
 
 
 def compute_bp_diff(our: Decimal, fdic_pct: Decimal) -> Decimal:
@@ -112,10 +113,25 @@ def compare_to_fdic(
             )
         )
 
+    # Cross-check: for every expected (cert, quarter, mapped_ratio_id) triple,
+    # is there *some* ratios row? A missing row silently shrinks N without
+    # showing up in any of the three buckets above. Treated as a gate failure
+    # by evaluate_gate — these are bugs in our compute pipeline, not data quirks.
+    mapped_ratio_ids = {rid for rid, code in rdefs.items() if code}
+    seen_keys = {(r.cert, r.quarter_id, r.ratio_id) for r in all_rows}
+    missing_ratio_row = sum(
+        1
+        for cert in certs
+        for qid in quarter_ids
+        for rid in mapped_ratio_ids
+        if (cert, qid, rid) not in seen_keys
+    )
+
     return comparisons, ExclusionStats(
         no_fdic_code=no_fdic_code,
         not_ok_quality=not_ok_quality,
         missing_fdic_fact=missing_fdic_fact,
+        missing_ratio_row=missing_ratio_row,
     )
 
 
@@ -151,6 +167,35 @@ def format_table(comparisons: list[Comparison]) -> str:
     return "\n".join(lines)
 
 
+def evaluate_gate(
+    comparisons: list[Comparison],
+    exclusions: ExclusionStats,
+) -> tuple[str, Decimal, Decimal]:
+    """Pure-function DoD gate verdict over comparisons + exclusions.
+
+    Returns `(verdict, mean_bps, max_bps)`. `verdict` starts with "PASS" or
+    "FAIL" — callers can branch on `verdict.startswith("FAIL")` for exit codes.
+
+    Fails when: no comparisons, mean abs >= DOD_MEAN_BPS, max >= DOD_MAX_BPS,
+    or any expected (cert, quarter, mapped_ratio_id) row is missing.
+    """
+    if not comparisons:
+        return ("FAIL (no comparisons)", Decimal(0), Decimal(0))
+    diffs = [c.bp_diff for c in comparisons]
+    mean = sum(diffs, Decimal(0)) / Decimal(len(diffs))
+    mx = max(diffs)
+    reasons: list[str] = []
+    if mean >= DOD_MEAN_BPS:
+        reasons.append(f"mean {mean:.2f} bps")
+    if mx >= DOD_MAX_BPS:
+        reasons.append(f"max {mx:.2f} bps")
+    if exclusions.missing_ratio_row > 0:
+        reasons.append(f"{exclusions.missing_ratio_row} missing ratio row(s)")
+    if reasons:
+        return (f"FAIL ({'; '.join(reasons)})", mean, mx)
+    return ("PASS", mean, mx)
+
+
 def write_snapshot(
     comparisons: list[Comparison],
     exclusions: ExclusionStats,
@@ -161,15 +206,7 @@ def write_snapshot(
 ) -> str:
     """Write the snapshot markdown to `path` and return PASS/FAIL verdict."""
     now = datetime.now(UTC).strftime("%Y-%m-%d %H:%M UTC")
-    if comparisons:
-        all_diffs = [c.bp_diff for c in comparisons]
-        mean = sum(all_diffs, Decimal(0)) / Decimal(len(all_diffs))
-        mx = max(all_diffs)
-        gate = "PASS" if mean < DOD_MEAN_BPS and mx < DOD_MAX_BPS else "FAIL"
-    else:
-        mean = Decimal(0)
-        mx = Decimal(0)
-        gate = "FAIL (no comparisons)"
+    gate, mean, mx = evaluate_gate(comparisons, exclusions)
 
     body = "\n".join(
         [
@@ -188,6 +225,7 @@ def write_snapshot(
             f"- Ratio has no FDIC pre-computed code mapped: {exclusions.no_fdic_code}",
             f"- Our value not 'ok' (partial / suppressed / NULL): {exclusions.not_ok_quality}",
             f"- FDIC fact row missing or NULL: {exclusions.missing_fdic_fact}",
+            f"- Expected ratios row missing (cert x quarter x ratio_id): {exclusions.missing_ratio_row}",
             "",
             "## Per-ratio breakdown",
             "",
