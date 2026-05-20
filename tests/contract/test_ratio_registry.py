@@ -31,6 +31,7 @@ KNOWN_SUPPRESS_KEYS: frozenset[str] = frozenset({"cblr"})
 
 VALUE_PATH_MODULES: tuple[Path, ...] = (
     Path("src/peerbench/decimal_.py"),
+    Path("src/peerbench/ingest/cdr.py"),
     Path("src/peerbench/ingest/fdic.py"),
     Path("src/peerbench/ingest/upsert.py"),
     Path("src/peerbench/ratio_engine/registry.py"),

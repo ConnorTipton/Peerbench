@@ -61,11 +61,16 @@ matches FDIC `IDT1CER` to fractions of a bp; `RCOA8274/RWAJT = 12.4961%`
 ### 2. Multi-column candidate lookup (domain-prefix fallback)
 
 FFIEC RC-R and RC-B schedules ship per-bank values under domain-specific
-MDRM prefixes: `RCOA*` / `RCFD*` for consolidated reporting (banks with
-foreign offices), `RCFA*` / `RCON*` for domestic-only filers. Of the
-5-bank sample, only First-Citizens (cert 11063) has foreign offices and
-uses the consolidated columns; the other 4 use the domestic-only
-columns. The schema map `cdr_schema.cdr_columns()` now returns a tuple
+MDRM prefixes. Within each schedule the prefix pair is:
+
+- **RC-R (capital):** `RCOA*` for domestic-only filers, `RCFA*` for
+  filers with foreign offices.
+- **RC-B (securities):** `RCON*` for domestic-only filers, `RCFD*` for
+  consolidated (foreign-office filers).
+
+Of the 5-bank sample, only First-Citizens (cert 11063) has foreign
+offices and populates the consolidated columns (`RCFAP859`, `RCFD1773`);
+the other 4 populate the domestic-only columns (`RCOAP859`, `RCON1773`). The schema map `cdr_schema.cdr_columns()` now returns a tuple
 of candidate MDRMs per `(quarter, label)`. `cli.py:ingest_cdr` walks the
 tuple via `pick_first_non_empty(row, candidates)` and takes the first
 non-empty value per row. The post-Task-25 header check is preserved but

@@ -50,6 +50,7 @@ import logging
 import re
 import zipfile
 from collections.abc import Iterator
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -74,15 +75,52 @@ def pick_first_non_empty(row: dict[str, str], columns: tuple[str, ...]) -> str |
     as empty. Order is preference: callers list the more-common candidate
     first (e.g. RCOA before RCFA for CET1 because the domestic-only
     population is larger).
+
+    If multiple candidates are non-empty with DIFFERENT raw values, the
+    helper still returns the first (preference order wins) but emits a
+    WARNING log so silent divergence between domain prefixes surfaces.
+    Empirically the two columns are equal when both populated (e.g.
+    First-Citizens 2025-Q4 reports `RCFD1773 = RCON1773 = 31790000`).
     """
+    seen: list[tuple[str, str]] = []
     for col in columns:
         v = row.get(col)
         if v is None:
             continue
         s = v.strip()
         if s:
-            return v
-    return None
+            seen.append((col, v))
+    if not seen:
+        return None
+    if len(seen) > 1 and len({v for _, v in seen}) > 1:
+        logger.warning(
+            "Divergent non-empty CDR candidates in row IDRSSD=%s: %s — taking %s=%r",
+            row.get("IDRSSD", "?"),
+            seen,
+            seen[0][0],
+            seen[0][1],
+        )
+    return seen[0][1]
+
+
+def coerce_cdr_value(raw: str | None) -> Decimal | None:
+    """Convert a raw CDR TSV cell to Decimal, or None for blank/null markers.
+
+    Single str -> Decimal coercion point for CDR-sourced facts. Mirrors
+    the Decimal-only contract of `peerbench.ingest.upsert.upsert_fact`:
+    no float round-trip, no implicit precision loss. Lives here so the
+    value-path contract test (`tests/contract/test_ratio_registry.py`)
+    can cover it via `src/peerbench/ingest/cdr.py`.
+    """
+    if raw is None:
+        return None
+    s = raw.strip()
+    if not s or s.upper() in {"NR", "N/A", "NA", "NULL"}:
+        return None
+    try:
+        return Decimal(s)
+    except (ValueError, InvalidOperation):
+        return None
 
 
 class CdrClient:

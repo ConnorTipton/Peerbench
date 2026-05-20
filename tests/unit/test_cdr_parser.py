@@ -327,6 +327,84 @@ def test_pick_first_non_empty_walks_candidates() -> None:
     assert pick_first_non_empty(row3, ("RCOAP859", "RCFAP859")) == "9"
 
 
+def test_pick_first_non_empty_warns_on_divergent_candidates(caplog) -> None:
+    """Empirically First-Citizens 2025-Q4 reports RCFD1773 == RCON1773 ==
+    31790000. If a future quarter ships divergent values for the two
+    candidates, surface a WARNING so the silent first-wins choice doesn't
+    mask a real reporting discrepancy."""
+    from peerbench.ingest.cdr import pick_first_non_empty
+
+    row = {"IDRSSD": "12345", "RCFD1773": "31790000", "RCON1773": "31790001"}
+    with caplog.at_level("WARNING", logger="peerbench.ingest.cdr"):
+        result = pick_first_non_empty(row, ("RCFD1773", "RCON1773"))
+    assert result == "31790000"
+    assert any("Divergent" in rec.message for rec in caplog.records)
+
+
+def test_pick_first_non_empty_silent_when_candidates_agree(caplog) -> None:
+    """Equal non-empty candidates is the common case (e.g. First-Citizens
+    both 31790000). Should NOT warn — only divergence is suspicious."""
+    from peerbench.ingest.cdr import pick_first_non_empty
+
+    row = {"IDRSSD": "12345", "RCFD1773": "31790000", "RCON1773": "31790000"}
+    with caplog.at_level("WARNING", logger="peerbench.ingest.cdr"):
+        result = pick_first_non_empty(row, ("RCFD1773", "RCON1773"))
+    assert result == "31790000"
+    assert not any("Divergent" in rec.message for rec in caplog.records)
+
+
+def test_iter_schedule_rows_three_file_fan_in(tmp_path: Path) -> None:
+    """If FFIEC ships RC-B as three files in a future quarter, only the
+    member that satisfies the required column group should stream. Codex
+    P2 regression coverage: (1 of 3) has IDRSSD only, (2 of 3) has both
+    IDRSSD and the target MDRM, (3 of 3) has neither."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    part1 = "IDRSSD\tRCFD0211\n11111\t1\n22222\t2\n"  # no RCFD1773
+    part2 = "IDRSSD\tRCFD1773\n11111\t100\n22222\t200\n"  # the useful file
+    part3 = "RCONG349\tRCONG350\n9\t8\n"  # no IDRSSD, no RCFD1773
+    _make_zip(
+        zip_path,
+        {
+            "FFIEC CDR Call Schedule RCB 12312025(1 of 3).txt": part1,
+            "FFIEC CDR Call Schedule RCB 12312025(2 of 3).txt": part2,
+            "FFIEC CDR Call Schedule RCB 12312025(3 of 3).txt": part3,
+        },
+    )
+    client = CdrClient(cache_dir=tmp_path)
+    rows = list(
+        client.iter_schedule_rows(
+            "2025-Q4",
+            "RCB",
+            required_columns=(("IDRSSD",), ("RCFD1773",)),
+        )
+    )
+    assert len(rows) == 2
+    assert {r["IDRSSD"] for r in rows} == {"11111", "22222"}
+    assert {r["RCFD1773"] for r in rows} == {"100", "200"}
+
+
+def test_coerce_cdr_value_roundtrips_decimal() -> None:
+    """coerce_cdr_value is the single str -> Decimal coercion point for
+    CDR-sourced facts. Returns None for blank/null markers; returns
+    Decimal preserving precision for everything else."""
+    from decimal import Decimal
+
+    from peerbench.ingest.cdr import coerce_cdr_value
+
+    assert coerce_cdr_value(None) is None
+    assert coerce_cdr_value("") is None
+    assert coerce_cdr_value("  ") is None
+    assert coerce_cdr_value("NR") is None
+    assert coerce_cdr_value("N/A") is None
+    assert coerce_cdr_value("NA") is None
+    assert coerce_cdr_value("NULL") is None
+    assert coerce_cdr_value("null") is None
+    assert coerce_cdr_value("31790000") == Decimal("31790000")
+    assert coerce_cdr_value("1500000.42") == Decimal("1500000.42")
+    # Non-numeric falls through to None rather than raising.
+    assert coerce_cdr_value("not-a-number") is None
+
+
 def test_iter_schedule_rows_required_columns_default_off(tmp_path: Path) -> None:
     """Empty `required_columns` keeps the old permissive behavior for
     callers that don't care to validate (today: tests + future probes)."""

@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
 
@@ -29,6 +28,7 @@ from peerbench.ingest.cdr import (
     RSSD_COLUMN,
     CdrClient,
     CdrZipNotCachedError,
+    coerce_cdr_value,
     pick_first_non_empty,
 )
 from peerbench.ingest.cdr_schema import SCHEDULE_PATTERN, cdr_columns, known_labels
@@ -198,18 +198,6 @@ def _parse_cert_list(certs: str) -> list[int]:
     return [int(c.strip()) for c in certs.split(",") if c.strip()]
 
 
-def _coerce_cdr_value(raw: str | None) -> Decimal | None:
-    if raw is None:
-        return None
-    s = raw.strip()
-    if not s or s.upper() in {"NR", "N/A", "NA", "NULL"}:
-        return None
-    try:
-        return Decimal(s)
-    except (ValueError, InvalidOperation):
-        return None
-
-
 @app.command("ingest-cdr")
 def ingest_cdr(
     certs: Annotated[str, typer.Option("--certs", help="Comma-separated FDIC cert numbers")],
@@ -261,7 +249,7 @@ def ingest_cdr(
                 candidates = cdr_columns(qid, label)
                 field_code = _CDR_FIELD_CODE[label]
                 seen = 0
-                matched = 0
+                matched_certs: set[int] = set()
                 try:
                     rows = client.iter_schedule_rows(
                         qid,
@@ -281,12 +269,12 @@ def ingest_cdr(
                         if cert_val is None:
                             continue
                         raw_value = pick_first_non_empty(row, candidates)
-                        value = _coerce_cdr_value(raw_value)
+                        value = coerce_cdr_value(raw_value)
                         if value is None and session.get(Fact, (cert_val, qid, field_code)) is None:
                             continue
                         upsert_fact(session, cert_val, qid, field_code, value, on_diff=on_diff)
                         upsert_count += 1
-                        matched += 1
+                        matched_certs.add(cert_val)
                 except CdrZipNotCachedError as e:
                     typer.echo(str(e), err=True)
                     raise typer.Exit(code=2) from None
@@ -294,9 +282,17 @@ def ingest_cdr(
                     typer.echo(f"CDR schedule layout error for {qid} {label}: {e}", err=True)
                     raise typer.Exit(code=2) from None
                 typer.echo(
-                    f"  {qid} {label}: {matched} matched / {seen} scanned "
-                    f"(candidates={list(candidates)})"
+                    f"  {qid} {label}: {len(matched_certs)}/{len(cert_list)} certs matched "
+                    f"({seen} rows scanned, candidates={list(candidates)})"
                 )
+                missing_certs = set(cert_list) - matched_certs
+                if missing_certs:
+                    typer.echo(
+                        f"    WARN: certs missing from {qid} {label}: "
+                        f"{sorted(missing_certs)} — downstream ratios will be "
+                        f"marked partial.",
+                        err=True,
+                    )
     typer.echo(f"done: {upsert_count} CDR fact upserts")
 
 
