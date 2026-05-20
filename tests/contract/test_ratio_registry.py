@@ -38,6 +38,7 @@ VALUE_PATH_MODULES: tuple[Path, ...] = (
     Path("src/peerbench/ratio_engine/suppression.py"),
     Path("src/peerbench/ratio_engine/compute.py"),
     Path("src/peerbench/ratio_engine/handlers"),
+    Path("src/peerbench/validate.py"),
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

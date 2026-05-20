@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Annotated
 
 import typer
@@ -36,6 +37,7 @@ from peerbench.ratio_engine.compute import (
     compute_all_for_bank_quarter,
     load_fact_view,
 )
+from peerbench.validate import compare_to_fdic, format_table, write_snapshot
 
 app = typer.Typer(no_args_is_help=True, add_completion=False)
 
@@ -210,6 +212,52 @@ def compute(
             sup = sum(1 for r in results.values() if isinstance(r, SuppressedResult))
             typer.echo(f"  {qid}: {ok} ok, {partial} partial, {sup} suppressed")
     typer.echo("done")
+
+
+@app.command("validate")
+def validate(
+    certs: Annotated[
+        str,
+        typer.Option(
+            "--certs",
+            help="Comma-separated FDIC cert numbers (default: 5-bank Phase 1 slice)",
+        ),
+    ] = "4063,4214,110,11063,5510",
+    quarters: Annotated[
+        int, typer.Option("--quarters", help="How many most-recent finalized quarters")
+    ] = 8,
+    write_snapshot_to: Annotated[
+        str | None,
+        typer.Option("--write-snapshot", help="Path to write the snapshot markdown"),
+    ] = None,
+) -> None:
+    """Compare computed ratios against FDIC pre-computed; report basis-point diffs.
+
+    DoD bar (Phase 1): mean abs <2 bps, max <5 bps across all OK-classified
+    ratios with a mapped FDIC pre-computed code.
+    """
+    cert_list = [int(c.strip()) for c in certs.split(",") if c.strip()]
+    qids = recent_finalized_quarters(quarters)
+    typer.echo(f"validating certs={cert_list} quarters={qids}")
+    with get_session() as session:
+        comparisons, exclusions = compare_to_fdic(session, cert_list, qids)
+    typer.echo(format_table(comparisons))
+    typer.echo(
+        f"\nExcluded: {exclusions.no_fdic_code} no-FDIC-code, "
+        f"{exclusions.not_ok_quality} not-ok, "
+        f"{exclusions.missing_fdic_fact} missing-FDIC-fact"
+    )
+    if write_snapshot_to:
+        gate = write_snapshot(
+            comparisons,
+            exclusions,
+            Path(write_snapshot_to),
+            certs=cert_list,
+            quarter_ids=qids,
+        )
+        typer.echo(f"\nwrote snapshot to {write_snapshot_to}: {gate}")
+        if gate.startswith("FAIL"):
+            raise typer.Exit(code=1)
 
 
 @app.command("info")
