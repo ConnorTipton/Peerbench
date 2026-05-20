@@ -1,196 +1,148 @@
-# Peerbench — handoff from previous session (2026-05-19, Task 25 shipped + pushed + codex P2s patched)
+# Peerbench — handoff (2026-05-20, Sprint 1 dashboard up; CDR fix queued)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md` (v1.3) for the project plan and conventions before doing anything substantive.
 
 ## TL;DR
 
-- **Phase 1 ratio coverage at 29/30**, up from 27/30. `cet1` and `htm_loss_t1` handler bodies shipped this session (Task 25); only `top_loan_cat` remains `NotImplementedError`. See `docs/divergences.md`.
-- **FFIEC CDR ingest infrastructure complete.** `peerbench ingest-cdr` reads cached Subject Data Format ZIPs from `cache/cdr/YYYY-Qn.zip`, streams the inner TSVs (RC-R Part I + RC-B Memo 2), maps RSSD→Cert, and upserts CDR-namespaced field codes (`CDR_CET1_CAPITAL`, `CDR_HTM_FAIRVAL`) through the existing on-diff/restatement-detector pipeline.
-- **One manual step remains before validation closes.** FFIEC's bulk endpoint is a form-driven .aspx app that can't be auto-downloaded. The user must stage 8 ZIPs in `cache/cdr/` per [`docs/cdr-ingest.md`](./docs/cdr-ingest.md) before the live-ingest + recompute + validate gate can run. The CLI fails cleanly with full instructions if a ZIP is missing.
-- **Restatement detector is wired and smoke-tested end-to-end.** Synthetic diff → quality_log row + 30 ratios flipped to partial → next compute restores to ok.
-- **63 tests passing** (was 43; +14 CDR parser + schema-map tests in Task 25, +6 post-review regression tests for the codex P2 fixes). Task 25 squashed into one commit (`8957249`); the post-review fix is a separate commit (`88b6dea`). Both pushed to `origin/main`. Working tree clean.
-- **Remaining Phase 1 work:** stage CDR ZIPs and run the validation gate. Then `top_loan_cat` (RC-C expansion) — optional, can slide to Phase 2 if the dashboard doesn't surface it in v1.
+- **Phase 2 Sprint 1 (dashboard) is implemented, smoke-passed locally, and lives in PR #1** (https://github.com/ConnorTipton/Peerbench/pull/1) on branch `phase-2-sprint-1-dashboard-scaffold`. 3 commits, marked ready for review, **not yet merged**. Renders the 30-ratio × 5-peer matrix for the latest renderable quarter (2025-Q4). Confirmed working with real data: real bank names, restatement marker on MidFirst Q4 NIM cell, sticky header + first column, anchor highlight on the MidFirst column, design tokens encoded in Tailwind v4 `@theme`.
+- **Sprint 1's two reviewer-flagged soft items are fixed in commit `230bd41`:** arbitrary-value escapes (`text-[length:...]`) replaced with Tailwind v4 utility classes, anchor-column detection moved from positional `institutions[i-1]?.cert` to typed `ColumnMeta.cert` via TanStack module augmentation.
+- **Ghost-quarter bug fixed in commit `35165e2`:** `web/lib/queries.ts` was picking latest quarter via `quarters.report_date`, which selects the empty 2026-Q1 ghost row. Now sources latest from `ratios.quarter_id` so the page anchors on the latest *renderable* quarter, not the latest *known* one.
+- **CDR ingest ran end-to-end** and surfaced two real bugs (see "Open issues" below). 40 CDR fact rows are now in `facts` (4 banks × 8 quarters × 2 fields) — but the `CDR_CET1_CAPITAL` values are actually **Tier 1 capital amounts** (wrong MDRM), not CET1. Validation gate **FAILS** at mean 19.82 bps / max 82.47 bps for `cet1`. Fix is well-scoped (~45 min) and queued.
+- **Working tree as of this handoff:** on branch `phase-2-sprint-1-dashboard-scaffold`. Clean (no uncommitted changes). Local matches `origin/phase-2-sprint-1-dashboard-scaffold` at commit `230bd41`. `main` is still at `b0ea287` until PR #1 lands.
+- **63 tests still passing.**
 
-## What landed in Day 4 (8 commits, `943b23f`…`bd52169`)
+## What landed today (2026-05-20, 3 PR commits)
 
-In dependency order:
+PR #1 = `phase-2-sprint-1-dashboard-scaffold` branch:
 
-1. **`data(fields): add EAMINTAN + NCLNLSR; fix npl_ratio/acl_npl FDIC mapping`** (`943b23f`) — CSV mapping bug: `npl_ratio` was being compared to `LNRESNCR` (allowance/noncurrent) instead of `NCLNLSR` (noncurrent/loans). Handler was right all along. Filled `acl_npl.fdic_precomputed_code = LNRESNCR` too. Added `EAMINTAN` + `NCLNLSR` to `fdic_fields.py`.
-2. **`fix(ratios): eff_ratio subtracts EAMINTAN to match FDIC EEFFR`** (`7da8ff6`) — Handler now subtracts amortization of intangibles from NONIX. Closes the 26 bps drift. AST snapshot regenerated.
-3. **`feat(validate): peerbench validate CLI + snapshot writer`** (`7c115a2`) — New subcommand; pulls ok ratios + matching FDIC pre-computed, computes per-row bp diffs, writes `docs/validation-snapshot.md`. Reusable for the Phase 3 daily-cron deploy guard. Decimal-clean (added to VALUE_PATH_MODULES). 9 unit tests.
-4. **`feat(ingest): wire on_diff callback to log restatements + mark ratios stale`** (`5ab585f`) — New module `src/peerbench/ingest/quality_log.py`; `make_quality_log_callback(session)` returns the `OnDiffCallback`. Wired into `cli.py:ingest`. 5 unit tests.
-5. **`fix(ratios): loans_deposits uses LNLSNET to match FDIC LNLSDEPR`** (`4180ac1`) — Surprise outlier surfaced by the new validate harness: gross-vs-net loans was producing ~100 bps drift. One-line handler swap. AST snapshot regenerated.
-6. **`docs(validation): post-Day-4 snapshot — PASS (5 banks × 8 quarters)`** (`f00d246`) — First validation snapshot.
-7. **`docs(day-4): NIM worked example + divergences catalog + HANDOFF refresh`** (`551b991`) — `docs/ratios/nim.md` (template for the other 29), `docs/divergences.md` (permanent home for the divergence catalog), and the prior HANDOFF rewrite.
-8. **`docs: fix aggregate mean bps (0.04 -> 0.02) in HANDOFF + divergences`** (`bd52169`) — Stat typo fix to match the actual snapshot.
+1. **`7317ca0` — feat(web): Phase 2 Sprint 1 — Next.js 16 scaffold + ratio matrix.** Built by Ultraplan in a remote sandbox; pushed to `origin` after the user paired the sandbox to GitHub. Files: `web/` subdir (app/, components/, lib/, types/), package.json/lock, eslint+postcss+tsconfig, README web section, .gitignore additions. Reviewer caught the `Intl.NumberFormat` `style:"percent"` × `currencySign:"accounting"` silent-ignore bug pre-commit; fixed in-place. Single commit by Claude, unsigned (sandbox GPG server returned HTTP 400). Authorship: `Claude <noreply@anthropic.com>` — honest attribution, not a bug.
+2. **`35165e2` — fix(web): anchor latest quarter on ratios, seed institution names.** Two real follow-ups surfaced during smoke: (a) the ghost-quarter bug above; (b) institutions table had placeholder `CERT 4063` names; added `sql/seed_institution_names.sql` and applied via Supabase SQL editor. All 5 banks now show real names.
+3. **`230bd41` — refactor(web): utility classes + column-meta anchor detection.** The two Sprint 1 reviewer soft items. No visual change — `@theme` tokens map 1:1 to utility classes. Anchor detection no longer positional, so Sprint 2's planned per-peer sort won't break it.
 
-**Day 4 lesson learned:** the `loans_deposits` ~100 bps gap (commit 5) was invisible until the validate harness landed in commit 3. Days 1–3 had measured only 9 anchor ratios by manual SQL; the new harness covers all 13 ratios with mapped FDIC codes and is the reason we caught + fixed the gross/net loans discrepancy. Treat `peerbench validate` as the first thing to run when picking up a stale session — it's the fastest "is anything broken?" signal.
+## What also happened today (no commits, infrastructure / data)
 
-## What landed in Task 25 (1 squash commit, `8957249`)
+- **Supabase RLS pre-flight ran via MCP.** `anon` already has SELECT on `institutions`, `quarters`, `ratio_defs`, `ratios`, `facts`, `quality_log`. RLS is disabled. The Supabase advisor flags `rls_disabled` as critical — fine for Phase 2 dev (public FFIEC data) but Phase 3 production deploy should `ENABLE ROW LEVEL SECURITY` + add a permissive read policy.
+- **Institution names updated.** Real names + charter codes for all 5 banks via `sql/seed_institution_names.sql`. Verified.
+- **Stale empty `package-lock.json` at repo root deleted** — predated Sprint 1; was misdirecting Next.js workspace root detection.
+- **8 CDR ZIPs staged + 9th (2026-Q1) extra in `cache/cdr/`.** `2024-Q1` through `2025-Q4` for the gate; `2026-Q1` won't be used until late June. All contain the expected `RCRI` and `RCB` schedules. Files are gitignored.
+- **Live CDR ingest + compute + validate ran.** Findings below.
 
-**`feat(ingest): FFIEC CDR ingest path + cet1/htm_loss_t1 handlers (Task 25)`**
+## Open issues — CDR ingest data quality (queued, see "Recommendation")
 
-In one commit, scoped to the plan at `~/.claude/plans/okay-look-at-synthetic-wand.md`:
+The first live CDR ingest surfaced **two separate bugs** that together cause the validation gate to FAIL at mean 19.82 bps / max 82.47 bps on `cet1`. Both have clean root causes; the fix is well-scoped to `src/peerbench/ingest/cdr_schema.py` + `src/peerbench/ingest/cdr.py`.
 
-- New `src/peerbench/ingest/cdr.py` — `CdrClient` (cache-first; `CdrZipNotCachedError` with manual-download instructions) + memory-safe TSV streaming via `iter_schedule_rows()`.
-- New `src/peerbench/ingest/cdr_schema.py` — per-quarter MDRM lookup (`cdr_column("2025-Q4", "CET1_CAPITAL") → "RCOA8274"`); covers 2024-Q1 through 2025-Q4 for `CET1_CAPITAL` (RC-R Part I) and `HTM_FAIRVAL` (RC-B Memo 2).
-- New `peerbench ingest-cdr --certs … --quarters N` CLI subcommand. Resolves RSSD→Cert via existing `RSSDID` facts; reuses `upsert_fact` + `make_quality_log_callback` so the restatement detector covers CDR fields too.
-- `src/peerbench/fdic_fields.py` — new `CDR_FIELDS` tuple; semantics of `all_fields()` tightened to "FDIC API only"; new `all_field_codes()` for the union. `peerbench info` now reports `65 (63 FDIC API + 2 CDR)`.
-- `src/peerbench/ratio_engine/handlers/{capital,liquidity}.py` — `cet1` and `htm_loss_t1` bodies shipped:
-  - `cet1`: `f["CDR_CET1_CAPITAL"] / f["RWAJT"]`
-  - `htm_loss_t1`: `(f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]` *(later floored at 0 in commit `88b6dea` — see the post-Task-25 codex review section below)*
-  - AST snapshot regenerated; versions stay at `"v1"`.
-- 14 new unit tests (`tests/unit/test_cdr_parser.py`, `test_cdr_schema.py`) against synthetic fixture ZIPs.
-- New `docs/cdr-ingest.md` — the authoritative manual-download procedure. Reference for the gate that's blocking validation.
-- `.gitignore` ignores `cache/` so multi-hundred-MB CDR ZIPs never enter the repo.
+### Bug 1: Wrong MDRM for CET1 capital
 
-**Plan deviation worth flagging:** the plan called for an HTTP fetch in `CdrClient.fetch_zip()`. FFIEC's bulk endpoint is a form-driven ASP.NET app with VIEWSTATE + cookies — no plain GET works. Pivoted to cache-first; ZIPs are staged manually per `docs/cdr-ingest.md`. The CLI fails cleanly (exit 2) with full instructions if a ZIP is missing — confirmed by running `peerbench ingest-cdr --certs 4063 --quarters 1` before commit. Auto-download (Selenium / FFIEC machine-to-machine API) is documented as a Phase 3 option.
+`cdr_schema.py:_STABLE["CET1_CAPITAL"]` is pinned to `RCOA8274`, which is the **legacy Tier 1 capital amount**, not the post-CECL CET1 capital amount. For 3 of 4 matched banks (MidFirst, BOK, Frost), `CET1 == Tier 1` because they have no Additional Tier 1 instruments, so the value happens to be right. **Bank OZK has AT1 preferred stock**, so its CET1 < Tier 1 → 82 bps drift exposed.
 
-## Post-Task-25 codex review (1 commit, `88b6dea`)
+**Right MDRM is `P859`.** Verified by extracting the actual TSV header and comparing column values against FDIC's pre-computed `IDT1CER`:
 
-Ran `/codex review` against the Task 25 batch (`016263f..HEAD`). GATE: PASS, three P2s — all real, all fixed in one follow-up commit:
+| cert | RCOA8274 (current) | **RCOAP859** | RCFAP859 | FDIC IDT1CER% | Match |
+| ---: | ---: | ---: | ---: | ---: | --- |
+| 4063 (MidFirst) | 18.53% | 18.53% | — | 18.53% | both |
+| 4214 (BOK) | 12.02% | 12.02% | — | 12.02% | both |
+| 5510 (Frost) | 14.33% | 14.33% | — | 14.33% | both |
+| 110 (Bank OZK) | **12.50% ❌** | 11.72% | — | 11.72% | **P859 only** |
+| 11063 (First-Citizens) | — | — | **12.55%** | 12.55% | **RCFAP859 only** |
 
-**`fix(ingest): codex P2s — HTM floor, schedule word-boundary, MDRM header check`**
+### Bug 2: Domain prefix split (RCOA vs RCFA)
 
-- **HTM floor (`liquidity.py:34`)**: `data/ratios.csv` says "Floor at 0 (losses only, not gains)" but the handler returned a negative ratio when fair value > amortized cost (any gain quarter). Numerator now clamps at `Decimal(0)`. AST snapshot bumped to `a0f76b16…`; version stays `v1` — this aligns the implementation with the spec the handler always shipped under.
-- **Schedule word-boundary (`cdr.py:_find_member`)**: substring `in` let `"RCRI"` collide with `"RCRII"` (Part II); FFIEC ZIPs ship both. Switched to `\b…\b` regex so the 4-letter schedule token only matches as a whole word.
-- **Header validation (`cdr.py:iter_schedule_rows` + `cli.py:ingest_cdr`)**: new optional `required_columns` kwarg checks the first row's header and raises `ValueError` if a column is absent. `ingest-cdr` passes `(RSSD_COLUMN, mdrm)` and exits 2 on layout drift instead of silently writing zero facts. **First live ingest will now surface MDRM domain-prefix mismatch (`RCOA`/`RCFD`/`RCON`) immediately** rather than producing a clean exit with `0 matched / N scanned`.
+Domestic-only filers report under `RCOAP859`. Banks with foreign offices (e.g., First-Citizens) report under `RCFAP859`. The current pinning is a single column; First-Citizens shows `0 matched / N scanned` because the column we look at is empty for them.
 
-6 new tests: `tests/unit/test_liquidity_handlers.py` (new file, 3 tests for gain/loss/at-par) + 3 added to `test_cdr_parser.py` (RCRI/RCRII collision, attached-token exclusion, missing-required-column raise). Total: **63 passing**.
+**Right fix:** make `_STABLE` map to a *tuple of candidate columns*; the ingest tries each in order and takes the first non-empty value per row. Need to update `cdr_column()` return type, the `required_columns` enforcement in `iter_schedule_rows()` (codex P2 fix expects single column name), and ~2 tests.
 
-**Lesson learned:** running `/codex review` after declaring a chunk done caught three real bugs that the implementor's tests didn't surface — one was a spec-violation (HTM floor), two were silent-failure modes (substring collision, missing-column). Cheap insurance; should be routine before any squash-and-push.
+### Bug 3: RCB multi-file split (HTM data missing for 4 of 5 banks)
 
-## Database state (live Supabase)
+FFIEC ships RC-B for 2025-Q4 as **two files**: `FFIEC CDR Call Schedule RCB 12312025(1 of 2).txt` (~1.7 MB) + `(2 of 2).txt` (~0.5 MB). `peerbench.ingest.cdr._find_member` matches the first file and logs `Multiple files match 'RCB' — picking first`. HTM Memorandum 2(d) (MDRM `RCFD1773`) is row-split across the files — only First-Citizens (11063) happened to be in `(1 of 2)`.
 
-- 30 rows in `ratio_defs` (re-seeded; Day 4 changes to 5 rows of CSV metadata applied)
-- ~2,400 rows in `facts` (5 banks × 8 quarters × 60 fields with values; 60 = 58 + EAMINTAN + NCLNLSR)
-- 5 rows in `institutions` (4063, 4214, 110, 11063, 5510)
-- ~1,200 rows in `ratios` (5 banks × 8 quarters × 30 ratios). Per (cert, quarter): 27 ok + 3 partial in recent quarters, 24 ok + 6 partial in older quarters where some fields are missing.
-- 1 row in `quality_log` — from the Day 4 on_diff smoke test (cert 4063, 2025-Q4, NIM, `event_type='restated'`, old=1097000, new=1097635). Real evidence the detector works end-to-end. Safe to leave (it's an audit-trail artifact) or `DELETE FROM quality_log WHERE id=1;` if you want a clean baseline before the next live ingest.
+**Right fix:** when multiple member files match a schedule token, iter_schedule_rows should stream all of them (concatenate row iterators). Same pattern as Bug 2 — single-column lookup becomes multi-column / multi-file fan-in.
 
-## 5-bank sample — use these certs
+### Database state after the bad ingest
 
-| Cert | Bank | Note |
-| --- | --- | --- |
-| 4063 | MidFirst Bank | Anchor. ~$41B, OK-based, family-owned |
-| 4214 | BOK Financial NA | ~$52B. **NOT 4862** — that cert is an inactive defunct bank |
-| 110 | Bank OZK | ~$40B, CRE-heavy |
-| 11063 | First Citizens BancShares | ~$229B, Holding family |
-| 5510 | Cullen/Frost (Frost Bank) | ~$53B, TX. **NOT 5560** — also inactive |
+- `facts.CDR_CET1_CAPITAL`: 32 rows (4 banks × 8 quarters; First-Citizens missing). **Values are Tier 1 capital amounts**, not CET1. For MidFirst/BOK/Frost the numbers happen to be right (no AT1); for Bank OZK they're wrong by ~80 bps.
+- `facts.CDR_HTM_FAIRVAL`: 8 rows (First-Citizens × 8 quarters only). Missing 4 banks because of Bug 3.
+- `ratios.cet1`: `data_quality='ok'` with wrong values for 4 banks, `partial` for First-Citizens.
+- `ratios.htm_loss_t1`: `data_quality='ok'` for First-Citizens only, `partial` for the others.
 
-If adding peers, verify `ACTIVE=1` via the FDIC API before locking. Grep `data/fdic_field_reference.csv` for field codes.
+**No rollback needed** — the fix re-ingests and overwrites via the existing idempotent upsert path. The restatement detector will fire on Bank OZK's CET1 (82 bp diff = real change), drop a `quality_log` row, and recompute. Audit-trail clean.
 
-## Validation status
+## Recommended next step (1-5 sentences)
 
-See `docs/validation-snapshot.md` for the latest snapshot. Re-run any time:
+**Run `/ultraplan` in a fresh session to fix the CDR ingest** — scope is isolated to `cdr_schema.py` + `cdr.py` + ~2-3 tests, the bug is fully characterized above, and a sandbox iteration on a focused fix is exactly the right tool. **In parallel, merge PR #1 to `main` and update HANDOFF accordingly** — the dashboard is independent of CDR data quality; once the CDR fix re-ingests, `cet1` and `htm_loss_t1` flip to correct `ok` values with zero dashboard code change. Do not start Sprint 2 (per-ratio drilldown) until both have landed — the drilldown needs to show restatement provenance for cells that change between this session's bad data and the post-fix correct data, and that flow is easier to design once both PRs are merged.
+
+## Sprint 1 PR #1 — what's left
+
+Steps the human owns (I cannot squash-merge to main without explicit per-action approval — the user wants a heads-up on irreversible actions):
+
+1. **Self-review the diff** at https://github.com/ConnorTipton/Peerbench/pull/1/files
+2. **Squash-merge** when satisfied:
+   ```bash
+   gh pr merge 1 --squash --delete-branch
+   ```
+3. **After merge, ask Claude to update HANDOFF.md** to reflect Sprint 1 having shipped (delete the "Sprint 1 lives in PR #1" sections, replace with a "Sprint 1 merged at <sha>" summary). Trivial 5-min cleanup.
+
+## Definition of Done — Phase 1, where we actually stand
+
+The Phase-1 DoD bar from `CLAUDE.md` is: "ratios match FDIC pre-computed ±2 bps on 5-bank sample; restatement detector wired and logging."
+
+- **13 of 15 mapped ratios pass the bar.** `acl_loans`, `acl_npl`, `eff_ratio`, `loans_deposits`, `nco_ratio`, `nim`, `npl_ratio`, `roa`, `roe`, `tier1_lev`, `tier1_rbc`, `total_rbc`, `yield_ea` — all within fractions of a bp. Two unmapped ratios `cet1` (FDIC code `IDT1CER`) and `htm_loss_t1` (no FDIC pre-computed) are blocked on the CDR fix.
+- **Once the CDR fix lands**, `cet1` joins the mapped set with target <2 bps drift; `htm_loss_t1` enters at `ok` for all 5 banks (currently 1/5).
+- **`top_loan_cat` (RC-C expansion)** remains the one Phase-1 `NotImplementedError`. Deferrable to Phase 2 if the dashboard doesn't surface it in v1 (it doesn't currently).
+- **Restatement detector is wired and end-to-end smoke-tested** (Day 4). One real `quality_log` row exists for MidFirst-Q4-NIM (synthetic diff during smoke).
+
+## Files of interest for the CDR fix
+
+The next agent should start by reading these in order:
+
+1. `/Users/connortipton/Projects/Peerbench/HANDOFF.md` — this file (especially "Open issues" + "Recommended next step")
+2. `/Users/connortipton/Projects/Peerbench/src/peerbench/ingest/cdr_schema.py` — single-column pinning; needs to become multi-column lookup
+3. `/Users/connortipton/Projects/Peerbench/src/peerbench/ingest/cdr.py` — `iter_schedule_rows`, `_find_member`; needs multi-file fan-in (Bug 3) and multi-column row-lookup (Bug 2)
+4. `/Users/connortipton/Projects/Peerbench/tests/unit/test_cdr_parser.py` and `test_cdr_schema.py` — existing tests; will need new cases for multi-column fallback + multi-file streaming
+5. `/Users/connortipton/Projects/Peerbench/docs/cdr-ingest.md` — manual download procedure; no edits needed
+6. `/Users/connortipton/Projects/Peerbench/docs/divergences.md` — update post-fix to remove the "awaiting first live CDR ZIP" status on `cet1` and `htm_loss_t1`
+
+## How to run things (smoke commands)
+
+`.env.local` at repo root is populated. Inside the project dir:
 
 ```bash
+uv run pytest                                       # 63 tests — should still pass post-fix
+uv run peerbench info                               # sanity: 30 handlers, 65 field codes
+uv run peerbench ingest-cdr --certs 4063,4214,110,11063,5510 --quarters 8
+for c in 4063 4214 110 11063 5510; do uv run peerbench compute --cert "$c" --quarters 8; done
 uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 \
   --write-snapshot docs/validation-snapshot.md
 ```
 
-## Known issues / open items
+**Acceptance criterion for the CDR fix:** `validate` gate reports `PASS` with mean <2 bps / max <5 bps across **15 mapped ratios** (currently 13 — `cet1` + `htm_loss_t1` join once `IDT1CER` and an HTM cross-check are computable for all 5 banks).
 
-See `docs/divergences.md` — single source of truth for `NotImplementedError` handlers, methodology divergences, resolved-in-Day-4 + Task-25 items, and within-bar residuals.
-
-## Open tasks
-
-- **Task 25 finish-line (manual + verification):** stage the 8 FFIEC CDR Subject Data Format ZIPs per [`docs/cdr-ingest.md`](./docs/cdr-ingest.md), then run:
-  ```bash
-  uv run peerbench ingest-cdr --certs 4063,4214,110,11063,5510 --quarters 8
-  for c in 4063 4214 110 11063 5510; do uv run peerbench compute --cert "$c" --quarters 8; done
-  uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 --write-snapshot docs/validation-snapshot.md
-  ```
-  Expect the snapshot to grow from 13 mapped ratios to 15 (cet1, htm_loss_t1 join) and stay PASS. **First live ingest verifies the MDRM codes** (`RCOA8274`, `RCFD1773`) pinned in `src/peerbench/ingest/cdr_schema.py`. Post-`88b6dea`, prefix drift fails loudly: if the live TSV header is missing the pinned column, `ingest-cdr` exits 2 with `Schedule ... is missing required column(s) [...]`. Swap the domain prefix in `_STABLE` (try `RCFD` ↔ `RCOA` ↔ `RCON`) and re-run. Soft drift (column present, value differs from `IDT1CER` by >2 bps) is still a manual call.
-- **`top_loan_cat` (deferred):** expand `src/peerbench/fdic_fields.py` with the rest of RC-C, re-ingest 5 banks, implement handler. Or defer to Phase 2 if the dashboard doesn't surface it in v1.
-- **Phase 2 kickoff:** Next.js 16 dashboard. Once cet1/htm ZIPs are staged and ratios recomputed, all 29 Phase-1-mandate ratios will be in the `ratios` table with the right values + restatement flagging; the frontend just needs to render them. See PLAN.md Phase 2 for the design contract and `docs/design.md` for the token spec.
-
-## How to run things (smoke commands)
-
-`.env.local` is fully populated. Inside the project dir:
-
+**Web dashboard:**
 ```bash
-uv run pytest                                       # 63 tests
-uv run peerbench info                               # sanity: 30 handlers, 65 field codes (63 FDIC + 2 CDR)
-uv run peerbench seed-ratios                        # idempotent re-seed of ratio_defs
-uv run peerbench ingest --cert 4063 --quarters 1    # FDIC API: one bank, one quarter
-uv run peerbench ingest-cdr --certs 4063 --quarters 1  # CDR ZIPs (cache/cdr/<qid>.zip must be staged)
-uv run peerbench compute --cert 4063 --quarters 1   # compute ratios, persist
-uv run peerbench validate --certs 4063 --quarters 1 # bp diff vs FDIC precomputed
-uv run ruff check src tests
-uv run ruff format --check src tests
+cd web && npm install && npm run dev
 ```
-
-DB queries via `pg8000` inline (psql isn't installed):
-
-```bash
-set -a && source .env.local && set +a
-uv run --with pg8000 python <<'PY'
-import os, pg8000.dbapi, urllib.parse as up
-url = up.urlparse(os.environ["DATABASE_URL"])
-conn = pg8000.dbapi.connect(
-    user=up.unquote(url.username), password=up.unquote(url.password),
-    host=url.hostname, port=url.port or 5432,
-    database=url.path.lstrip("/"), ssl_context=True,
-)
-# ...
-PY
-```
+With `web/.env.local` populated from the user's Supabase project URL + anon key (URL: `https://mmefodhnpybyxzpaobmt.supabase.co`).
 
 ## Architecture conventions to honor
 
-(Also in `CLAUDE.md`; repeat here so they survive into a fresh context.)
+(Repeating from `CLAUDE.md` so this survives into a fresh context.)
 
-- **Decimal end-to-end.** NO `float(` casts in the value path. The contract test at `tests/contract/test_ratio_registry.py` enforces this with a grep across `decimal_.py`, `ingest/fdic.py`, `ingest/upsert.py`, `ratio_engine/*`, and `validate.py`. Adding `float(` will break CI.
-- **Ratio handler registry.** Every ratio has a row in `ratio_defs` (human-readable formula = source of truth for documentation) AND a registered handler in `peerbench.ratio_engine.handlers` (Python = source of truth for execution). A contract test enforces 1:1 correspondence + AST-hash drift detection.
-- **YTD averaging.** Use `f.avg(field, periods=f.quarter_number + 1)` — FDIC's YTD average convention is prior Dec + current YTD quarter-ends (2/3/4/5 observations for Q1/Q2/Q3/Q4). Hardcoding `periods=5` would only be correct at Q4. Where FDIC exposes pre-averaged fields (`ASSET5`, `EQ5`, `ERNAST5`), prefer those.
-- **Suppression is pipeline-level.** CBLR suppression lives in `ratio_defs.suppress_when JSONB` column; the dispatcher calls `should_suppress()` before invoking a handler. Handlers stay pure.
-- **Annualization** via `FactView.annualize_factor()` returning Q1=4, Q2=2, Q3=4/3, Q4=1.
-- **Restatement detector** is wired (Day 4). `cli.py:ingest` passes `make_quality_log_callback(session)` to `upsert_fact`; on diff, the callback inserts a `quality_log` row and UPDATEs `ratios.data_quality='partial'` for the affected `(cert, quarter_id)`. Next `compute` run promotes back to `ok`.
-- **All handler versions stay at `"v1"`.** The contract test `TestHandlerVersions.test_all_handlers_at_v1` enforces this — Phase 1 hasn't shipped externally yet. To change a handler body during Phase 1: edit, delete `tests/contract/handler_ast_snapshot.json`, run pytest once to regenerate, then run again to confirm clean. Don't bump to `"v2"` yet.
-- **Today's date is 2026-05-19.** Most recent finalized quarter is 2025-Q4. The CLI uses `PUBLICATION_LATENCY_DAYS=90` (in `src/peerbench/quarters.py`), not the 35-day filing deadline — FDIC publishes ~60-90 days after quarter end.
-- **No formula logic in TS or Excel.** The dashboard (Phase 2) and Excel export (Phase 4) read the `ratios` table only.
+- **Decimal end-to-end.** No `float(` casts in the value path. Contract test enforces.
+- **Ratio handler registry.** Every ratio has a row in `ratio_defs` AND a registered handler in `peerbench.ratio_engine.handlers`. Contract test enforces 1:1 + AST-hash drift detection.
+- **Suppression is pipeline-level** via `ratio_defs.suppress_when JSONB`. Handlers stay pure.
+- **All handler versions stay at `"v1"`.** Phase 1 hasn't shipped externally. To change a handler body during Phase 1: edit, delete `tests/contract/handler_ast_snapshot.json`, run pytest once to regenerate, then run again to confirm clean.
+- **No formula logic in TS or Excel.** Dashboard reads `ratios.value` only.
 - **Post-CECL nomenclature.** ACL, never ALLL.
 
 ## What NOT to redo
 
-- Don't re-ingest the 5 banks unless explicitly asked — they're already in Supabase. (Re-ingest is idempotent and now triggers the restatement detector, so it's not destructive; just unnecessary.)
-- Don't re-apply the `suppress_when JSONB` migration — it's live.
-- Don't recreate Day 1/2/3/4 artifacts (already committed).
-- Don't use `--base` or `--uncommitted` with a PROMPT to `codex review` in CLI v0.131.0 — they're mutually exclusive. Stage first (`git add -A`) and call `codex review "$PROMPT"` with no diff flag.
-- Don't trust the BOK cert (4862) or Cullen/Frost cert (5560) from the original plan — they're inactive. Use **4214** and **5510**.
-- Don't bump handler `version="v1"` during Phase 1 — the contract test forbids it.
+- **Don't re-stage CDR ZIPs** — they're in `cache/cdr/2024-Q1.zip` … `cache/cdr/2025-Q4.zip` (8 files for the gate + `2026-Q1.zip` extra).
+- **Don't re-apply institution names** — already done; `sql/seed_institution_names.sql` is on the branch for the post-merge `main`.
+- **Don't bump handler `version="v1"` during Phase 1.**
+- **Don't trust the BOK cert 4862 or Cullen/Frost cert 5560** from the original plan — they're inactive. Use **4214** and **5510**.
 
-## Recommended first action
+## Today's date
 
-Read these four files in order before touching anything:
-1. `/Users/connortipton/Projects/Peerbench/PLAN.md` — project plan v1.3
-2. `/Users/connortipton/Projects/Peerbench/CLAUDE.md` — conventions
-3. `/Users/connortipton/Projects/Peerbench/docs/divergences.md` — open items + methodology gaps
-4. `/Users/connortipton/Projects/Peerbench/docs/cdr-ingest.md` — manual CDR ZIP staging procedure (new this session)
-
-Then **verify the codebase + DB are in the expected clean state** — three quick checks:
-
-```bash
-# 1. Git: working tree clean, at 88b6dea (or beyond)
-git -C /Users/connortipton/Projects/Peerbench log --oneline -3
-git -C /Users/connortipton/Projects/Peerbench status --short
-
-# 2. Tests: should report "63 passed" with no skips
-cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
-
-# 3. Validation gate: should report "PASS" with mean <2 bps, max <5 bps
-cd /Users/connortipton/Projects/Peerbench && \
-  uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 \
-    --write-snapshot docs/validation-snapshot.md 2>&1 | tail -3
-```
-
-If any of those three diverge from the expected state, stop and surface to the user before doing substantive work — something landed between this handoff and now (FDIC restatement, manual edit, etc.).
-
-Then ask the user what they want to do. Most likely menu:
-- **(a)** Task 25 finish-line — verify the CDR ZIPs exist in `cache/cdr/2024-Q1.zip … 2025-Q4.zip` (8 files). If yes, run the ingest-cdr → compute → validate trio (see "Open tasks" above). If no, point the user at `docs/cdr-ingest.md` and wait. Expected snapshot: 15 mapped ratios, still PASS. **First-pass risk:** MDRM domain prefix (`RCOA` vs `RCFD` vs `RCON`) — if `cet1` differs from `IDT1CER` by >2 bps, edit `_STABLE` in `src/peerbench/ingest/cdr_schema.py` and re-ingest.
-- **(b)** Phase 2 kickoff: scaffold the Next.js 16 dashboard. Sensible if user wants to defer the CDR staging or work in parallel. The 27 already-`ok` ratios are enough to start rendering.
-- **(c)** `top_loan_cat`: expand RC-C field ingest and implement the handler. Smaller chunk, easy slot-in. Or formally defer to Phase 2 if the dashboard cut doesn't surface it.
+2026-05-20. Most recent finalized quarter (90-day publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## User context / preferences (from memory)
 
@@ -198,4 +150,4 @@ Then ask the user what they want to do. Most likely menu:
 - Solo developer, fresh repo, this project doubles as portfolio material.
 - High autonomy ("just go with your best recommendations") but wants a heads-up before live DB changes, pushes, or other irreversible actions.
 - Prefers check-ins at chunk boundaries, not narration of every step.
-- Reachable feedback signals: when shown a plan, picks an option or asks targeted clarifying questions rather than asking for more options.
+- Uses `/ultraplan` for well-scoped sandboxed implementation; PR-back pattern is established.
