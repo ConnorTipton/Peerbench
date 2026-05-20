@@ -3,8 +3,15 @@
 Two ratios in Peerbench (`cet1`, `htm_loss_t1`) depend on fields the FDIC
 BankFind API does not expose:
 
-- **CET1 capital dollar amount** — FFIEC CDR Schedule RC-R Part I, MDRM `RCOA8274`.
-- **HTM securities fair value** — FFIEC CDR Schedule RC-B Memorandum 2(d), MDRM `RCFD1773`.
+- **CET1 capital dollar amount** — FFIEC CDR Schedule RC-R Part I.A line 26,
+  MDRM `P859`. Domain candidates: `RCOAP859` (domestic-only filers),
+  `RCFAP859` (filers with foreign offices). Schema map tries both and
+  takes the first non-empty value per row.
+- **HTM securities fair value** — FFIEC CDR Schedule RC-B Memorandum 2(d),
+  MDRM `1773`. Domain candidates: `RCFD1773` (consolidated; foreign-office
+  banks), `RCON1773` (domestic only). RC-B ships split as `(1 of 2).txt`
+  + `(2 of 2).txt`; the parser fans in across both files and skips the
+  one that lacks the target column.
 
 These come from the FFIEC's bulk Call Report download (Subject Data Format
 ZIPs). The bulk endpoint is a form-driven ASP.NET app — it requires
@@ -59,15 +66,22 @@ gap can be cross-checked).
 
 ## Schema-map verification
 
-The MDRMs above (`RCOA8274`, `RCFD1773`) are pinned in
-`src/peerbench/ingest/cdr_schema.py` from the FFIEC MDRM data dictionary.
-The domain prefix (`RCOA` vs `RCFD` vs `RCON`) is non-obvious until you
-look at a real ZIP header. After the first successful ingest, confirm
-the snapshot row count looks sane (5 banks × 8 quarters × 2 fields = 80
-new fact rows) and inspect one row by hand — if `cet1` differs from the
-FDIC pre-computed ratio `IDT1CER` by more than a couple bps, the MDRM
-or the domain prefix is likely wrong; update the `_STABLE` table in
-`cdr_schema.py` and re-ingest.
+The MDRM candidates above are pinned in `src/peerbench/ingest/cdr_schema.py`
+and verified against the live 2025-Q4 ZIP on 2026-05-20 (Bank OZK matches
+FDIC `IDT1CER` exactly for `RCOAP859/RWAJT`; First-Citizens flows through
+RC-B's `RCFD1773` cleanly; the other 4 sample banks come through
+`RCON1773` via the multi-column fallback).
+
+If FFIEC restructures a future quarter:
+
+1. Inspect the new ZIP header for the relevant schedule (RCRI for CET1,
+   RCB for HTM).
+2. If a new domain prefix appears, add it to the candidate tuple in
+   `_STABLE` (or `_OVERRIDES` if quarter-specific).
+3. Re-run `peerbench ingest-cdr` and `peerbench validate`. The parser
+   will raise `ValueError` if no candidate from the required group is in
+   any matching member — that's the loud-failure signal that the schema
+   map needs an update.
 
 ## Why isn't this automated?
 

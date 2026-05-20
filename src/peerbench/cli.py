@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from typing import Annotated
 
@@ -25,8 +24,14 @@ from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
 from peerbench.db.ratio_writer import upsert_ratio
 from peerbench.fdic_fields import all_field_codes, all_fields
 from peerbench.ingest import FdicClient, make_quality_log_callback, upsert_fact
-from peerbench.ingest.cdr import RSSD_COLUMN, CdrClient, CdrZipNotCachedError
-from peerbench.ingest.cdr_schema import SCHEDULE_PATTERN, cdr_column, known_labels
+from peerbench.ingest.cdr import (
+    RSSD_COLUMN,
+    CdrClient,
+    CdrZipNotCachedError,
+    coerce_cdr_value,
+    pick_first_non_empty,
+)
+from peerbench.ingest.cdr_schema import SCHEDULE_PATTERN, cdr_columns, known_labels
 from peerbench.quarters import (
     parse_quarter_id,
     quarter_end_date,
@@ -193,18 +198,6 @@ def _parse_cert_list(certs: str) -> list[int]:
     return [int(c.strip()) for c in certs.split(",") if c.strip()]
 
 
-def _coerce_cdr_value(raw: str | None) -> Decimal | None:
-    if raw is None:
-        return None
-    s = raw.strip()
-    if not s or s.upper() in {"NR", "N/A", "NA", "NULL"}:
-        return None
-    try:
-        return Decimal(s)
-    except (ValueError, InvalidOperation):
-        return None
-
-
 @app.command("ingest-cdr")
 def ingest_cdr(
     certs: Annotated[str, typer.Option("--certs", help="Comma-separated FDIC cert numbers")],
@@ -253,13 +246,15 @@ def ingest_cdr(
             _ensure_quarter(session, qid, source="ffiec_cdr")
             for label in known_labels():
                 pattern = SCHEDULE_PATTERN[label]
-                mdrm = cdr_column(qid, label)
+                candidates = cdr_columns(qid, label)
                 field_code = _CDR_FIELD_CODE[label]
                 seen = 0
-                matched = 0
+                matched_certs: set[int] = set()
                 try:
                     rows = client.iter_schedule_rows(
-                        qid, pattern, required_columns=(RSSD_COLUMN, mdrm)
+                        qid,
+                        pattern,
+                        required_columns=((RSSD_COLUMN,), candidates),
                     )
                     for row in rows:
                         seen += 1
@@ -273,19 +268,31 @@ def ingest_cdr(
                         cert_val = cert_for_rssd.get(rssd)
                         if cert_val is None:
                             continue
-                        value = _coerce_cdr_value(row.get(mdrm))
+                        raw_value = pick_first_non_empty(row, candidates)
+                        value = coerce_cdr_value(raw_value)
                         if value is None and session.get(Fact, (cert_val, qid, field_code)) is None:
                             continue
                         upsert_fact(session, cert_val, qid, field_code, value, on_diff=on_diff)
                         upsert_count += 1
-                        matched += 1
+                        matched_certs.add(cert_val)
                 except CdrZipNotCachedError as e:
                     typer.echo(str(e), err=True)
                     raise typer.Exit(code=2) from None
                 except ValueError as e:
                     typer.echo(f"CDR schedule layout error for {qid} {label}: {e}", err=True)
                     raise typer.Exit(code=2) from None
-                typer.echo(f"  {qid} {label}: {matched} matched / {seen} scanned")
+                typer.echo(
+                    f"  {qid} {label}: {len(matched_certs)}/{len(cert_list)} certs matched "
+                    f"({seen} rows scanned, candidates={list(candidates)})"
+                )
+                missing_certs = set(cert_list) - matched_certs
+                if missing_certs:
+                    typer.echo(
+                        f"    WARN: certs missing from {qid} {label}: "
+                        f"{sorted(missing_certs)} — downstream ratios will be "
+                        f"marked partial.",
+                        err=True,
+                    )
     typer.echo(f"done: {upsert_count} CDR fact upserts")
 
 

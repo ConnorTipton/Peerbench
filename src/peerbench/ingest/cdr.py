@@ -15,13 +15,25 @@ Selenium-class scraper, this client expects ZIPs to be staged manually at
 `cache/cdr/YYYY-Qn.zip`. `get_zip_path()` raises `CdrZipNotCached` with
 explicit instructions when a ZIP is missing.
 
+Multi-file and multi-domain semantics
+-------------------------------------
+FFIEC ships some schedules split across multiple files (e.g. RC-B as
+`Schedule RCB 12312025(1 of 2).txt` + `(2 of 2).txt`). `iter_schedule_rows`
+finds ALL members matching the schedule pattern and chains their row
+iterators so no bank is silently dropped.
+
+Some MDRMs appear under multiple domain prefixes within a single quarter:
+RC-R amounts use `RCOA*` for domestic-only filers and `RCFA*` for filers
+with foreign offices. The schema map exposes candidate tuples and callers
+use `pick_first_non_empty` to resolve a single value per row.
+
 Conventions
 -----------
 - **Per-quarter cache** at `cache/cdr/YYYY-Qn.zip`. Directory is gitignored.
 - **CDR field codes are namespaced.** Values written to `facts.field_code`
   use a `CDR_*` prefix (see `peerbench.fdic_fields.CDR_FIELDS`). The MDRM
   column names *inside* the TSV change across quarters and are resolved
-  through `peerbench.ingest.cdr_schema.cdr_column()`.
+  through `peerbench.ingest.cdr_schema.cdr_columns()`.
 - **Quarter row reuse.** CDR-sourced facts piggyback on the existing
   `quarters` row created by the FDIC API ingest. See the known-tech-debt
   entry in `docs/divergences.md`.
@@ -38,6 +50,7 @@ import logging
 import re
 import zipfile
 from collections.abc import Iterator
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -52,6 +65,62 @@ class CdrZipNotCachedError(FileNotFoundError):
 
     Message includes the expected path and manual-download instructions.
     """
+
+
+def pick_first_non_empty(row: dict[str, str], columns: tuple[str, ...]) -> str | None:
+    """Return the first non-empty value across `columns`, else None.
+
+    Used by ingest-cdr to resolve a single MDRM value across the candidate
+    tuple from `cdr_schema.cdr_columns()`. Treats whitespace-only strings
+    as empty. Order is preference: callers list the more-common candidate
+    first (e.g. RCOA before RCFA for CET1 because the domestic-only
+    population is larger).
+
+    If multiple candidates are non-empty with DIFFERENT raw values, the
+    helper still returns the first (preference order wins) but emits a
+    WARNING log so silent divergence between domain prefixes surfaces.
+    Empirically the two columns are equal when both populated (e.g.
+    First-Citizens 2025-Q4 reports `RCFD1773 = RCON1773 = 31790000`).
+    """
+    seen: list[tuple[str, str]] = []
+    for col in columns:
+        v = row.get(col)
+        if v is None:
+            continue
+        s = v.strip()
+        if s:
+            seen.append((col, v))
+    if not seen:
+        return None
+    if len(seen) > 1 and len({v for _, v in seen}) > 1:
+        logger.warning(
+            "Divergent non-empty CDR candidates in row IDRSSD=%s: %s — taking %s=%r",
+            row.get("IDRSSD", "?"),
+            seen,
+            seen[0][0],
+            seen[0][1],
+        )
+    return seen[0][1]
+
+
+def coerce_cdr_value(raw: str | None) -> Decimal | None:
+    """Convert a raw CDR TSV cell to Decimal, or None for blank/null markers.
+
+    Single str -> Decimal coercion point for CDR-sourced facts. Mirrors
+    the Decimal-only contract of `peerbench.ingest.upsert.upsert_fact`:
+    no float round-trip, no implicit precision loss. Lives here so the
+    value-path contract test (`tests/contract/test_ratio_registry.py`)
+    can cover it via `src/peerbench/ingest/cdr.py`.
+    """
+    if raw is None:
+        return None
+    s = raw.strip()
+    if not s or s.upper() in {"NR", "N/A", "NA", "NULL"}:
+        return None
+    try:
+        return Decimal(s)
+    except (ValueError, InvalidOperation):
+        return None
 
 
 class CdrClient:
@@ -90,47 +159,83 @@ class CdrClient:
         self,
         quarter_id: str,
         schedule_pattern: str,
-        required_columns: tuple[str, ...] = (),
+        required_columns: tuple[tuple[str, ...], ...] = (),
     ) -> Iterator[dict[str, str]]:
-        """Stream rows from the first inner file matching schedule_pattern.
+        """Stream rows from every inner file matching `schedule_pattern`.
 
-        Memory-safe: opens the inner file via `zipfile.open()` and iterates
+        Memory-safe: opens each inner file via `zipfile.open()` and iterates
         line-by-line. Yields one dict per row keyed by the TSV header
         (MDRM codes). Values stay as raw strings — callers convert.
 
-        If `required_columns` is non-empty, the first row's header is
-        checked against it; a missing column raises ValueError so that
-        domain-prefix drift (RCON/RCOA/RCFD) or unexpected header layout
-        fails loudly instead of silently producing zero matches.
+        `required_columns` is a tuple of candidate groups; each group must
+        be satisfied (by at least one column present in the file header)
+        for that file's rows to be streamed. Use this to catch domain-
+        prefix drift (RCON/RCOA/RCFD) without rejecting populations where
+        only one of two candidates is present (e.g. `RCOAP859` for
+        domestic-only banks, `RCFAP859` for foreign-office banks —
+        `required_columns=(("RCOAP859", "RCFAP859"),)` passes for either
+        population but fails if neither is in any candidate member).
+
+        Multi-file schedules (e.g. RC-B 2025-Q4 ships as `(1 of 2).txt` +
+        `(2 of 2).txt` with disjoint MDRM sets) are handled by per-member
+        skipping: members lacking the required columns are skipped, others
+        contribute their rows. If NO matching member satisfies the groups,
+        the parser raises `ValueError` so layout drift surfaces loudly.
+
+        Empty `required_columns` performs no header check; all matching
+        members are streamed unconditionally.
         """
         zip_path = self.get_zip_path(quarter_id)
         with zipfile.ZipFile(zip_path) as zf:
-            member = self._find_member(zf, schedule_pattern)
-            logger.info("CDR streaming %s :: %s", zip_path.name, member)
-            with zf.open(member) as raw:
-                text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
-                reader = csv.DictReader(text, delimiter="\t")
-                header_validated = not required_columns
-                for row in reader:
-                    if not header_validated:
-                        missing = [c for c in required_columns if c not in row]
-                        if missing:
-                            seen = sorted(row.keys())
-                            msg = (
-                                f"Schedule {member!r} is missing required "
-                                f"column(s) {missing}; header had "
-                                f"{len(seen)} column(s) (first 10: {seen[:10]})"
+            members = self._find_members(zf, schedule_pattern)
+            logger.info(
+                "CDR streaming %s :: %d member(s) matching %r",
+                zip_path.name,
+                len(members),
+                schedule_pattern,
+            )
+            any_streamed = False
+            skipped: list[tuple[str, list[tuple[str, ...]]]] = []
+            for member in members:
+                with zf.open(member) as raw:
+                    text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
+                    reader = csv.DictReader(text, delimiter="\t")
+                    fieldnames = reader.fieldnames or []
+                    if required_columns:
+                        missing_groups = [
+                            grp for grp in required_columns if not any(c in fieldnames for c in grp)
+                        ]
+                        if missing_groups:
+                            logger.info(
+                                "  skipping member (missing %s): %s",
+                                missing_groups,
+                                member,
                             )
-                            raise ValueError(msg)
-                        header_validated = True
-                    yield row
+                            skipped.append((member, missing_groups))
+                            continue
+                    logger.info("  member: %s", member)
+                    any_streamed = True
+                    yield from reader
+            if required_columns and not any_streamed:
+                detail = (
+                    "; ".join(f"{m!r} missing {grps}" for m, grps in skipped)
+                    or "no matching members in ZIP"
+                )
+                msg = (
+                    f"No member matching {schedule_pattern!r} in "
+                    f"{zip_path.name} had all required column group(s) "
+                    f"{list(required_columns)} — missing required column(s) "
+                    f"in every candidate. Tried: {detail}"
+                )
+                raise ValueError(msg)
 
     @staticmethod
-    def _find_member(zf: zipfile.ZipFile, schedule_pattern: str) -> str:
+    def _find_members(zf: zipfile.ZipFile, schedule_pattern: str) -> list[str]:
+        """Return all member names matching `schedule_pattern` as a whole
+        token. RCB Memorandum 2 ships split across `(1 of 2).txt` and
+        `(2 of 2).txt`; both must stream. Word-boundary keeps RCRI distinct
+        from RCRII."""
         names = zf.namelist()
-        # Word-boundary match: "RCRI" must not match "RCRII" (Part II);
-        # FFIEC ZIPs ship both Part I and Part II files. \b treats the
-        # alphanumeric/non-alphanumeric transition as the token edge.
         token = re.compile(rf"\b{re.escape(schedule_pattern)}\b")
         candidates = [n for n in names if token.search(n)]
         if not candidates:
@@ -140,11 +245,4 @@ class CdrClient:
                 f"(saw {len(names)} member(s); first 5: {preview})"
             )
             raise ValueError(msg)
-        if len(candidates) > 1:
-            logger.warning(
-                "Multiple files match %r — picking first: %s (others: %s)",
-                schedule_pattern,
-                candidates[0],
-                candidates[1:],
-            )
-        return candidates[0]
+        return sorted(candidates)
