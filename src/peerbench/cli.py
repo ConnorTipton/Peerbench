@@ -22,7 +22,7 @@ from peerbench.config import get_settings
 from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
 from peerbench.db.ratio_writer import upsert_ratio
 from peerbench.fdic_fields import all_fields
-from peerbench.ingest import FdicClient, upsert_fact
+from peerbench.ingest import FdicClient, make_quality_log_callback, upsert_fact
 from peerbench.quarters import (
     parse_quarter_id,
     quarter_end_date,
@@ -160,6 +160,7 @@ def ingest(
     typer.echo(f"ingesting cert={cert} quarters={qids} fields={len(fields)}")
     with FdicClient() as client, get_session() as session:
         _ensure_institution(session, cert, client)
+        on_diff = make_quality_log_callback(session)
         written = 0
         for qid in qids:
             _ensure_quarter(session, qid, source="fdic_api")
@@ -170,7 +171,7 @@ def ingest(
                 # that's a restatement the detector must catch.
                 if value is None and session.get(Fact, (cert, qid, field_code)) is None:
                     continue
-                upsert_fact(session, cert, qid, field_code, value)
+                upsert_fact(session, cert, qid, field_code, value, on_diff=on_diff)
                 written += 1
             typer.echo(
                 f"  {qid}: {sum(1 for v in data.values() if v is not None)} fields with values"

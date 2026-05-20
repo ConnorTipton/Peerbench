@@ -72,8 +72,7 @@ def compare_to_fdic(
     plan. The ExclusionStats lets callers spot silent gaps.
     """
     rdefs: dict[str, str | None] = {
-        r.ratio_id: r.fdic_precomputed_code
-        for r in session.scalars(select(RatioDef)).all()
+        r.ratio_id: r.fdic_precomputed_code for r in session.scalars(select(RatioDef)).all()
     }
 
     all_rows = list(
@@ -166,9 +165,7 @@ def write_snapshot(
         all_diffs = [c.bp_diff for c in comparisons]
         mean = sum(all_diffs, Decimal(0)) / Decimal(len(all_diffs))
         mx = max(all_diffs)
-        gate = (
-            "PASS" if mean < DOD_MEAN_BPS and mx < DOD_MAX_BPS else "FAIL"
-        )
+        gate = "PASS" if mean < DOD_MEAN_BPS and mx < DOD_MAX_BPS else "FAIL"
     else:
         mean = Decimal(0)
         mx = Decimal(0)
