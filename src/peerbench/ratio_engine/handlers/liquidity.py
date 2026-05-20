@@ -30,5 +30,8 @@ def compute_brokered_dep(f: FactView) -> Decimal:
 def compute_htm_loss_t1(f: FactView) -> Decimal:
     # Unrealized HTM loss / Tier 1 capital. SCHA = HTM amortized cost
     # (FDIC API); CDR_HTM_FAIRVAL = HTM fair value (FFIEC CDR RC-B Memo 2).
-    # Positive numerator => HTM portfolio underwater vs book.
-    return (f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]
+    # data/ratios.csv specifies "Floor at 0 (losses only, not gains)" — in a
+    # falling-rate environment fair value can exceed book and a negative
+    # ratio would invert risk ranking.
+    unrealized_loss = max(Decimal(0), f["SCHA"] - f["CDR_HTM_FAIRVAL"])
+    return unrealized_loss / f["RBCT1J"]

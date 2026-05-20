@@ -258,7 +258,10 @@ def ingest_cdr(
                 seen = 0
                 matched = 0
                 try:
-                    for row in client.iter_schedule_rows(qid, pattern):
+                    rows = client.iter_schedule_rows(
+                        qid, pattern, required_columns=(RSSD_COLUMN, mdrm)
+                    )
+                    for row in rows:
                         seen += 1
                         rssd_raw = row.get(RSSD_COLUMN)
                         if not rssd_raw:
@@ -278,6 +281,9 @@ def ingest_cdr(
                         matched += 1
                 except CdrZipNotCachedError as e:
                     typer.echo(str(e), err=True)
+                    raise typer.Exit(code=2) from None
+                except ValueError as e:
+                    typer.echo(f"CDR schedule layout error for {qid} {label}: {e}", err=True)
                     raise typer.Exit(code=2) from None
                 typer.echo(f"  {qid} {label}: {matched} matched / {seen} scanned")
     typer.echo(f"done: {upsert_count} CDR fact upserts")

@@ -35,6 +35,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import re
 import zipfile
 from collections.abc import Iterator
 from pathlib import Path
@@ -89,12 +90,18 @@ class CdrClient:
         self,
         quarter_id: str,
         schedule_pattern: str,
+        required_columns: tuple[str, ...] = (),
     ) -> Iterator[dict[str, str]]:
         """Stream rows from the first inner file matching schedule_pattern.
 
         Memory-safe: opens the inner file via `zipfile.open()` and iterates
         line-by-line. Yields one dict per row keyed by the TSV header
         (MDRM codes). Values stay as raw strings — callers convert.
+
+        If `required_columns` is non-empty, the first row's header is
+        checked against it; a missing column raises ValueError so that
+        domain-prefix drift (RCON/RCOA/RCFD) or unexpected header layout
+        fails loudly instead of silently producing zero matches.
         """
         zip_path = self.get_zip_path(quarter_id)
         with zipfile.ZipFile(zip_path) as zf:
@@ -103,12 +110,29 @@ class CdrClient:
             with zf.open(member) as raw:
                 text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
                 reader = csv.DictReader(text, delimiter="\t")
-                yield from reader
+                header_validated = not required_columns
+                for row in reader:
+                    if not header_validated:
+                        missing = [c for c in required_columns if c not in row]
+                        if missing:
+                            seen = sorted(row.keys())
+                            msg = (
+                                f"Schedule {member!r} is missing required "
+                                f"column(s) {missing}; header had "
+                                f"{len(seen)} column(s) (first 10: {seen[:10]})"
+                            )
+                            raise ValueError(msg)
+                        header_validated = True
+                    yield row
 
     @staticmethod
     def _find_member(zf: zipfile.ZipFile, schedule_pattern: str) -> str:
         names = zf.namelist()
-        candidates = [n for n in names if schedule_pattern in n]
+        # Word-boundary match: "RCRI" must not match "RCRII" (Part II);
+        # FFIEC ZIPs ship both Part I and Part II files. \b treats the
+        # alphanumeric/non-alphanumeric transition as the token edge.
+        token = re.compile(rf"\b{re.escape(schedule_pattern)}\b")
+        candidates = [n for n in names if token.search(n)]
         if not candidates:
             preview = names[:5]
             msg = (

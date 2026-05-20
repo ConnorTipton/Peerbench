@@ -146,7 +146,9 @@ def test_iter_streams_without_loading_full_file(tmp_path: Path) -> None:
 
 # Exercising the private member-finder via the public API only — keeps the
 # test boundary at iter_schedule_rows.
-def test_find_member_first_match_when_multiple(tmp_path: Path) -> None:
+def test_find_member_word_boundary_excludes_attached_token(tmp_path: Path) -> None:
+    """The schedule pattern matches as a whole token. `RCRI_extra` shares
+    the prefix but is a different identifier, so it must not match."""
     zip_path = tmp_path / "2025-Q4.zip"
     _make_zip(
         zip_path,
@@ -156,13 +158,54 @@ def test_find_member_first_match_when_multiple(tmp_path: Path) -> None:
         },
     )
     client = CdrClient(cache_dir=tmp_path)
-    # First match wins (alphabetical-ish order); contract is that callers
-    # use a pattern specific enough that multiple matches are a code smell,
-    # logged by the client. Either ordering acceptable here.
     rows = list(client.iter_schedule_rows("2025-Q4", "RCRI"))
-    assert len(rows) >= 1
-    # Use the BOM/blank assertion as a sanity check the iterator works.
-    assert "IDRSSD" in rows[0]
+    assert len(rows) == 3
+    # Sanity-check we picked the FFIEC file, not RCRI_extra (single row).
+    assert {r["IDRSSD"] for r in rows} == {"12345", "67890", "99999"}
+
+
+def test_pattern_does_not_match_longer_token(tmp_path: Path) -> None:
+    """Real FFIEC ZIPs ship both RCRI (Part I) and RCRII (Part II). A
+    substring match would collide; word-boundary matching keeps them
+    distinct so the right schedule streams."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    rcrii_tsv = "IDRSSD\tRCOA9998\n55555\t1\n"
+    _make_zip(
+        zip_path,
+        {
+            # RCRII listed first so an alphabetical-order substring match
+            # would silently stream Part II under the RCRI pattern.
+            "FFIEC CDR Call Schedule RCRII 12312025.txt": rcrii_tsv,
+            "FFIEC CDR Call Schedule RCRI 12312025.txt": _rcri_tsv(),
+        },
+    )
+    client = CdrClient(cache_dir=tmp_path)
+    rcri_rows = list(client.iter_schedule_rows("2025-Q4", "RCRI"))
+    assert all("RCOA8274" in r for r in rcri_rows)
+    rcrii_rows = list(client.iter_schedule_rows("2025-Q4", "RCRII"))
+    assert all("RCOA9998" in r for r in rcrii_rows)
+
+
+def test_iter_schedule_rows_raises_when_required_column_missing(tmp_path: Path) -> None:
+    """If the live ZIP uses a different domain prefix (RCON vs RCOA), the
+    expected MDRM column will be absent and silently producing zero matches
+    is the prior bug. The header check must fail loudly."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    bad_tsv = "IDRSSD\tRCOA9999\n12345\t1\n"
+    _make_zip(zip_path, {"FFIEC CDR Call Schedule RCRI 12312025.txt": bad_tsv})
+    client = CdrClient(cache_dir=tmp_path)
+    with pytest.raises(ValueError, match="missing required column"):
+        list(client.iter_schedule_rows("2025-Q4", "RCRI", required_columns=("RCOA8274",)))
+
+
+def test_iter_schedule_rows_required_columns_default_off(tmp_path: Path) -> None:
+    """Empty `required_columns` keeps the old permissive behavior for
+    callers that don't care to validate (today: tests + future probes)."""
+    zip_path = tmp_path / "2025-Q4.zip"
+    _make_zip(zip_path, {"FFIEC CDR Call Schedule RCRI 12312025.txt": _rcri_tsv()})
+    client = CdrClient(cache_dir=tmp_path)
+    rows = list(client.iter_schedule_rows("2025-Q4", "RCRI"))
+    assert len(rows) == 3
 
 
 _ = io  # keep `io` import referenced for future fixtures (e.g. encoding probes)
