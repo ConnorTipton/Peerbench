@@ -36,31 +36,38 @@ export type MatrixData = {
 export async function getMatrixData(): Promise<MatrixData> {
   const supabase = await createServerSupabase();
 
-  const quarterRes = await supabase
-    .from("quarters")
-    .select("*")
-    .order("report_date", { ascending: false })
+  // Latest quarter with *computed ratios* — the FDIC API ingest can write a
+  // `quarters` row before the compute step populates `ratios` for it
+  // (e.g., 2026-Q1 exists with 0 facts before banks file), so anchoring on
+  // `quarters.report_date` would point at an empty quarter.
+  const latestRatioQuarter = await supabase
+    .from("ratios")
+    .select("quarter_id")
+    .order("quarter_id", { ascending: false })
     .limit(1)
     .single();
-  if (quarterRes.error) throw quarterRes.error;
-  const quarter = quarterRes.data as Quarter;
+  if (latestRatioQuarter.error) throw latestRatioQuarter.error;
+  const latestQuarterId = latestRatioQuarter.data.quarter_id;
 
-  const [institutionsRes, defsRes, ratiosRes, restatementsRes] = await Promise.all([
+  const [quarterRes, institutionsRes, defsRes, ratiosRes, restatementsRes] = await Promise.all([
+    supabase.from("quarters").select("*").eq("quarter_id", latestQuarterId).single(),
     supabase.from("institutions").select("*").eq("active", true),
     supabase.from("ratio_defs").select("*"),
-    supabase.from("ratios").select("*").eq("quarter_id", quarter.quarter_id),
+    supabase.from("ratios").select("*").eq("quarter_id", latestQuarterId),
     // Pull the full restatement row (incl. field_code + old/new values) so
     // Sprint 2's per-cell tooltip lands without a second round-trip.
     supabase
       .from("quality_log")
       .select("cert, quarter_id, field_code, event_type, old_value, new_value, detected_at")
-      .eq("quarter_id", quarter.quarter_id)
+      .eq("quarter_id", latestQuarterId)
       .eq("event_type", "restated"),
   ]);
+  if (quarterRes.error) throw quarterRes.error;
   if (institutionsRes.error) throw institutionsRes.error;
   if (defsRes.error) throw defsRes.error;
   if (ratiosRes.error) throw ratiosRes.error;
   if (restatementsRes.error) throw restatementsRes.error;
+  const quarter = quarterRes.data as Quarter;
 
   const institutions = sortInstitutions(institutionsRes.data as Institution[]);
   const ratioGroups = groupRatioDefs(defsRes.data as RatioDef[]);
