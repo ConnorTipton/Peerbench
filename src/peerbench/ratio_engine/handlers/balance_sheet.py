@@ -13,9 +13,10 @@ from peerbench.ratio_engine.registry import ratio
 
 @ratio("loans_deposits", version="v1")
 def compute_loans_deposits(f: FactView) -> Decimal:
-    # Gross loans / total deposits. FDIC's precomputed LNLSDEPR uses NET
-    # loans (LNLSGR - LNATRES - LNCONTRA); expect ~1-2% gap.
-    return f["LNLSGR"] / f["DEP"]
+    # Net loans / total deposits. LNLSNET = LNLSGR - LNATRES - LNCONTRA
+    # is the FDIC LNLSDEPR convention. Day 4 fix: prior version used gross
+    # loans (LNLSGR) which drifted ~100 bps vs LNLSDEPR.
+    return f["LNLSNET"] / f["DEP"]
 
 
 @ratio("loans_assets", version="v1")
