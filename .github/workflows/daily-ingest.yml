@@ -1,0 +1,57 @@
+name: daily-ingest
+
+# Pulls the latest 8 quarters of FDIC BankFind data for the 5-bank Phase 1
+# slice (MidFirst + 4 peers) and recomputes ratios. Doubles as the Supabase
+# free-tier inactivity heartbeat — without this firing daily the project
+# pauses after 7 days.
+#
+# CDR ingest is intentionally NOT included: the FFIEC bulk-download
+# endpoint is form-driven (ASP.NET VIEWSTATE) and cannot be automated; the
+# CdrClient raises CdrZipNotCachedError when ZIPs are missing. CDR fields
+# feed 2 of 30 ratios (cet1, htm_loss_t1) and refresh quarterly — see
+# docs/operations.md for the manual refresh procedure.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'        # 03:00 UTC every day
+  workflow_dispatch:
+
+concurrency:
+  group: daily-ingest
+  cancel-in-progress: false    # idempotent upserts; let in-flight runs finish
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    env:
+      FDIC_API_KEY: ${{ secrets.FDIC_API_KEY }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Install Python deps
+        run: uv sync
+
+      - name: Ingest FDIC API facts (5 banks x 8 quarters)
+        run: |
+          for cert in 4063 4214 110 11063 5510; do
+            uv run peerbench ingest --cert "$cert" --quarters 8
+          done
+
+      - name: Compute ratios
+        run: |
+          for cert in 4063 4214 110 11063 5510; do
+            uv run peerbench compute --cert "$cert" --quarters 8
+          done
+
+      - name: Heartbeat
+        run: echo "Heartbeat $(date -u +%Y-%m-%dT%H:%M:%SZ)"
