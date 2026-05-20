@@ -6,7 +6,7 @@ import pytest
 
 from peerbench.ingest.cdr_schema import (
     SCHEDULE_PATTERN,
-    cdr_column,
+    cdr_columns,
     known_labels,
     known_quarters,
 )
@@ -20,10 +20,14 @@ def test_all_8_quarters_resolve_all_labels() -> None:
     assert set(labels) == {"CET1_CAPITAL", "HTM_FAIRVAL"}
     for q in quarters:
         for lbl in labels:
-            mdrm = cdr_column(q, lbl)
-            assert mdrm.startswith(("RCO", "RCF")), (
-                f"{q}/{lbl} -> {mdrm!r} doesn't look like an MDRM"
+            mdrms = cdr_columns(q, lbl)
+            assert isinstance(mdrms, tuple) and mdrms, (
+                f"{q}/{lbl} -> {mdrms!r} must be a non-empty tuple"
             )
+            for mdrm in mdrms:
+                assert mdrm.startswith(("RCO", "RCF")), (
+                    f"{q}/{lbl} -> {mdrm!r} doesn't look like an MDRM"
+                )
 
 
 def test_schedule_pattern_covers_all_labels() -> None:
@@ -34,7 +38,7 @@ def test_schedule_pattern_covers_all_labels() -> None:
 
 def test_unknown_quarter_raises_keyerror_with_diagnostic() -> None:
     with pytest.raises(KeyError) as exc:
-        cdr_column("2019-Q1", "CET1_CAPITAL")
+        cdr_columns("2019-Q1", "CET1_CAPITAL")
     msg = str(exc.value)
     assert "2019-Q1" in msg
     assert "Known quarters" in msg
@@ -42,18 +46,20 @@ def test_unknown_quarter_raises_keyerror_with_diagnostic() -> None:
 
 def test_unknown_label_raises_keyerror_with_diagnostic() -> None:
     with pytest.raises(KeyError) as exc:
-        cdr_column("2025-Q4", "NOT_A_LABEL")
+        cdr_columns("2025-Q4", "NOT_A_LABEL")
     msg = str(exc.value)
     assert "NOT_A_LABEL" in msg
     assert "Known labels" in msg
 
 
-def test_stable_codes_match_documented_values() -> None:
-    """Pin the documented MDRMs so silent drift is caught.
+def test_cet1_has_both_domain_prefix_candidates() -> None:
+    """Domestic-only filers report CET1 under RCOAP859; banks with foreign
+    offices (e.g. First-Citizens, cert 11063) report under RCFAP859.
+    Both must be queryable so multi-column fallback can pick whichever the
+    bank actually populated."""
+    assert cdr_columns("2025-Q4", "CET1_CAPITAL") == ("RCOAP859", "RCFAP859")
 
-    These are flagged TODO-verify in cdr_schema.py — when Step 7 of the
-    Task 25 plan verifies against a real ZIP, update both the schema map
-    and this pin.
-    """
-    assert cdr_column("2025-Q4", "CET1_CAPITAL") == "RCOA8274"
-    assert cdr_column("2025-Q4", "HTM_FAIRVAL") == "RCFD1773"
+
+def test_htm_fairval_is_rcfd_only() -> None:
+    """RC-B Memo 2(d) HTM fair value ships under RCFD only (consolidated)."""
+    assert cdr_columns("2025-Q4", "HTM_FAIRVAL") == ("RCFD1773",)
