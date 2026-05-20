@@ -37,10 +37,15 @@ def compute_roe(f: FactView) -> Decimal:
 
 @ratio("eff_ratio", version="v1")
 def compute_eff_ratio(f: FactView) -> Decimal:
-    # Efficiency = NONIX / (NIM + NONII). FDIC's EEFFR subtracts amortization
-    # of intangibles from NONIX in the numerator; ours uses raw NONIX, so
-    # expect a small upward bias vs EEFFR. Documented in Day 4 validation.
-    return f["NONIX"] / (f["NIM"] + f["NONII"])
+    # Efficiency = (NONIX - amortization of intangibles) / (NIM + NONII).
+    # Matches FDIC EEFFR: subtract EAMINTAN (YTD $ amortization expense +
+    # goodwill impairment losses) from the numerator. Default to 0 when
+    # the field is missing — "no amortization reported = no adjustment",
+    # not a data error. Note: `Decimal(0) or Decimal(0)` evaluates the
+    # second branch (Decimal(0) is falsy), but the result is still 0, so
+    # the `or` collapses correctly for both None and explicit-zero inputs.
+    amort = f.get("EAMINTAN") or Decimal(0)
+    return (f["NONIX"] - amort) / (f["NIM"] + f["NONII"])
 
 
 @ratio("ppnr_assets", version="v1")
