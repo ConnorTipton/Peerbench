@@ -26,6 +26,7 @@ import pytest
 
 from peerbench.ratio_defs_io import load_ratio_defs
 from peerbench.ratio_engine import registered_handlers
+from peerbench.ratio_engine.field_deps import extract_field_deps
 
 KNOWN_SUPPRESS_KEYS: frozenset[str] = frozenset({"cblr"})
 
@@ -44,6 +45,7 @@ VALUE_PATH_MODULES: tuple[Path, ...] = (
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 SNAPSHOT = Path(__file__).parent / "handler_ast_snapshot.json"
+FIELD_DEPS_SNAPSHOT = REPO_ROOT / "web" / "lib" / "ratio-field-deps.generated.json"
 
 
 @pytest.fixture(scope="module")
@@ -127,6 +129,63 @@ class TestAstHashSnapshot:
             "regenerate the snapshot by deleting "
             f"{SNAPSHOT} and re-running.\n\n" + "\n".join(diffs)
         )
+
+
+class TestFieldDepsSnapshot:
+    """The committed JSON at ``web/lib/ratio-field-deps.generated.json`` is the
+    contract between the Python handler bodies (single source of truth for
+    field dependencies) and the dashboard's per-cell restatement marker. Both
+    the web layer and the ingest restatement-detector callback read from it,
+    so drift between handler edits and this snapshot would silently break the
+    "mark only the affected ratio" guarantee in Phase 2's definition of done.
+
+    Regenerate with ``uv run peerbench export-field-deps`` after intentional
+    handler edits, then commit the JSON.
+    """
+
+    def test_field_deps_snapshot_matches_handler_bodies(self) -> None:
+        current = {rid: sorted(fields) for rid, fields in extract_field_deps().items()}
+        assert FIELD_DEPS_SNAPSHOT.exists(), (
+            f"missing field-deps snapshot at {FIELD_DEPS_SNAPSHOT.relative_to(REPO_ROOT)}; "
+            "regenerate with `uv run peerbench export-field-deps`"
+        )
+        snapshot = json.loads(FIELD_DEPS_SNAPSHOT.read_text())
+        diffs: list[str] = []
+        for rid in sorted(set(current) | set(snapshot)):
+            cur = current.get(rid)
+            snap = snapshot.get(rid)
+            if cur is None:
+                diffs.append(f"  {rid}: in snapshot but no handler registered")
+            elif snap is None:
+                diffs.append(f"  {rid}: handler exists but missing from snapshot (fields: {cur})")
+            elif cur != snap:
+                diffs.append(f"  {rid}: snapshot {snap} -> handler now reads {cur}")
+        assert not diffs, (
+            "field-deps snapshot has drifted from handler bodies. Regenerate\n"
+            "with `uv run peerbench export-field-deps` and commit the result:\n\n"
+            + "\n".join(diffs)
+        )
+
+    def test_suppression_deps_are_unioned_into_consumer_ratios(self) -> None:
+        """``suppress_when={"cblr": true}`` reads CBLRIND via ``should_suppress``,
+        not from the handler body. The dep graph must still surface that edge,
+        otherwise a CBLRIND restatement would skip the partial flip on the very
+        ratios whose data_quality flips between ``ok`` and ``suppressed``.
+
+        Codex review caught this gap on the Sprint 1 polish diff (P1).
+        """
+        deps = extract_field_deps()
+        for rid in ("cet1", "tier1_rbc", "total_rbc"):
+            assert "CBLRIND" in deps[rid], (
+                f"{rid} opts into CBLR suppression but its field deps are missing "
+                f"CBLRIND. Got: {sorted(deps[rid])}"
+            )
+        # And ratios that don't opt into CBLR suppression should NOT pick up CBLRIND.
+        for rid in ("nim", "roa", "acl_loans"):
+            assert "CBLRIND" not in deps[rid], (
+                f"{rid} does not opt into CBLR suppression but picked up CBLRIND: "
+                f"{sorted(deps[rid])}"
+            )
 
 
 FLOAT_CAST = re.compile(r"\bfloat\(")

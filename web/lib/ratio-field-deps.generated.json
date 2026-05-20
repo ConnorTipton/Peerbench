@@ -1,0 +1,135 @@
+{
+  "acl_loans": [
+    "LNATRES",
+    "LNLSGR"
+  ],
+  "acl_npl": [
+    "LNATRES",
+    "NCLNLS"
+  ],
+  "brokered_dep": [
+    "BRO",
+    "DEP"
+  ],
+  "cash_assets": [
+    "ASSET",
+    "CHBAL"
+  ],
+  "cd_rbc": [
+    "LNRECONS",
+    "RBCT1J",
+    "RBCT2"
+  ],
+  "cet1": [
+    "CBLRIND",
+    "CDR_CET1_CAPITAL",
+    "RWAJT"
+  ],
+  "cost_funds": [
+    "DEPI",
+    "EINTEXP"
+  ],
+  "cre_rbc": [
+    "LNRECONS",
+    "LNREMULT",
+    "LNRENRES",
+    "RBCT1J",
+    "RBCT2"
+  ],
+  "deposits_liab": [
+    "DEP",
+    "LIAB"
+  ],
+  "eff_ratio": [
+    "EAMINTAN",
+    "NIM",
+    "NONII",
+    "NONIX"
+  ],
+  "htm_loss_t1": [
+    "CDR_HTM_FAIRVAL",
+    "RBCT1J",
+    "SCHA"
+  ],
+  "loans_assets": [
+    "ASSET",
+    "LNLSGR"
+  ],
+  "loans_deposits": [
+    "DEP",
+    "LNLSNET"
+  ],
+  "nco_ratio": [
+    "LNLSGR",
+    "NTLNLS"
+  ],
+  "nim": [
+    "ERNAST5",
+    "NIM"
+  ],
+  "nis": [
+    "DEPI",
+    "EINTEXP",
+    "ERNAST5",
+    "INTINC"
+  ],
+  "nonint_exp_assets": [
+    "ASSET5",
+    "NONIX"
+  ],
+  "nonint_inc_rev": [
+    "NIM",
+    "NONII"
+  ],
+  "npl_ratio": [
+    "LNLSGR",
+    "NCLNLS"
+  ],
+  "ppnr_assets": [
+    "ASSET5",
+    "NIM",
+    "NONII",
+    "NONIX"
+  ],
+  "roa": [
+    "ASSET5",
+    "NETINC"
+  ],
+  "roe": [
+    "EQ5",
+    "NETINC"
+  ],
+  "sec_assets": [
+    "ASSET",
+    "SC"
+  ],
+  "tce_ta": [
+    "ASSET",
+    "EQ",
+    "INTAN"
+  ],
+  "tier1_lev": [
+    "AVASSETJ",
+    "RBCT1J"
+  ],
+  "tier1_rbc": [
+    "CBLRIND",
+    "RBCT1J",
+    "RWAJT"
+  ],
+  "top_loan_cat": [],
+  "total_rbc": [
+    "CBLRIND",
+    "RBCT1J",
+    "RBCT2",
+    "RWAJT"
+  ],
+  "uninsured_dep": [
+    "DEP",
+    "DEPUNA"
+  ],
+  "yield_ea": [
+    "ERNAST5",
+    "INTINC"
+  ]
+}
