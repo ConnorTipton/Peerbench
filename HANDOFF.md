@@ -1,4 +1,4 @@
-# Peerbench — handoff from previous session (2026-05-19, Task 25 shipped + pushed)
+# Peerbench — handoff from previous session (2026-05-19, Task 25 shipped + pushed + codex P2s patched)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md` (v1.3) for the project plan and conventions before doing anything substantive.
 
@@ -8,7 +8,7 @@ You are continuing work on Peerbench, Connor's FP&A internship-prep project at `
 - **FFIEC CDR ingest infrastructure complete.** `peerbench ingest-cdr` reads cached Subject Data Format ZIPs from `cache/cdr/YYYY-Qn.zip`, streams the inner TSVs (RC-R Part I + RC-B Memo 2), maps RSSD→Cert, and upserts CDR-namespaced field codes (`CDR_CET1_CAPITAL`, `CDR_HTM_FAIRVAL`) through the existing on-diff/restatement-detector pipeline.
 - **One manual step remains before validation closes.** FFIEC's bulk endpoint is a form-driven .aspx app that can't be auto-downloaded. The user must stage 8 ZIPs in `cache/cdr/` per [`docs/cdr-ingest.md`](./docs/cdr-ingest.md) before the live-ingest + recompute + validate gate can run. The CLI fails cleanly with full instructions if a ZIP is missing.
 - **Restatement detector is wired and smoke-tested end-to-end.** Synthetic diff → quality_log row + 30 ratios flipped to partial → next compute restores to ok.
-- **57 tests passing** (was 43; +14 new CDR parser + schema-map tests this session). Task 25 squashed into one commit (`8957249`) and pushed to `origin/main`. Working tree clean.
+- **63 tests passing** (was 43; +14 CDR parser + schema-map tests in Task 25, +6 post-review regression tests for the codex P2 fixes). Task 25 squashed into one commit (`8957249`); the post-review fix is a separate commit (`88b6dea`). Both pushed to `origin/main`. Working tree clean.
 - **Remaining Phase 1 work:** stage CDR ZIPs and run the validation gate. Then `top_loan_cat` (RC-C expansion) — optional, can slide to Phase 2 if the dashboard doesn't surface it in v1.
 
 ## What landed in Day 4 (8 commits, `943b23f`…`bd52169`)
@@ -38,13 +38,27 @@ In one commit, scoped to the plan at `~/.claude/plans/okay-look-at-synthetic-wan
 - `src/peerbench/fdic_fields.py` — new `CDR_FIELDS` tuple; semantics of `all_fields()` tightened to "FDIC API only"; new `all_field_codes()` for the union. `peerbench info` now reports `65 (63 FDIC API + 2 CDR)`.
 - `src/peerbench/ratio_engine/handlers/{capital,liquidity}.py` — `cet1` and `htm_loss_t1` bodies shipped:
   - `cet1`: `f["CDR_CET1_CAPITAL"] / f["RWAJT"]`
-  - `htm_loss_t1`: `(f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]`
+  - `htm_loss_t1`: `(f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]` *(later floored at 0 in commit `88b6dea` — see the post-Task-25 codex review section below)*
   - AST snapshot regenerated; versions stay at `"v1"`.
 - 14 new unit tests (`tests/unit/test_cdr_parser.py`, `test_cdr_schema.py`) against synthetic fixture ZIPs.
 - New `docs/cdr-ingest.md` — the authoritative manual-download procedure. Reference for the gate that's blocking validation.
 - `.gitignore` ignores `cache/` so multi-hundred-MB CDR ZIPs never enter the repo.
 
 **Plan deviation worth flagging:** the plan called for an HTTP fetch in `CdrClient.fetch_zip()`. FFIEC's bulk endpoint is a form-driven ASP.NET app with VIEWSTATE + cookies — no plain GET works. Pivoted to cache-first; ZIPs are staged manually per `docs/cdr-ingest.md`. The CLI fails cleanly (exit 2) with full instructions if a ZIP is missing — confirmed by running `peerbench ingest-cdr --certs 4063 --quarters 1` before commit. Auto-download (Selenium / FFIEC machine-to-machine API) is documented as a Phase 3 option.
+
+## Post-Task-25 codex review (1 commit, `88b6dea`)
+
+Ran `/codex review` against the Task 25 batch (`016263f..HEAD`). GATE: PASS, three P2s — all real, all fixed in one follow-up commit:
+
+**`fix(ingest): codex P2s — HTM floor, schedule word-boundary, MDRM header check`**
+
+- **HTM floor (`liquidity.py:34`)**: `data/ratios.csv` says "Floor at 0 (losses only, not gains)" but the handler returned a negative ratio when fair value > amortized cost (any gain quarter). Numerator now clamps at `Decimal(0)`. AST snapshot bumped to `a0f76b16…`; version stays `v1` — this aligns the implementation with the spec the handler always shipped under.
+- **Schedule word-boundary (`cdr.py:_find_member`)**: substring `in` let `"RCRI"` collide with `"RCRII"` (Part II); FFIEC ZIPs ship both. Switched to `\b…\b` regex so the 4-letter schedule token only matches as a whole word.
+- **Header validation (`cdr.py:iter_schedule_rows` + `cli.py:ingest_cdr`)**: new optional `required_columns` kwarg checks the first row's header and raises `ValueError` if a column is absent. `ingest-cdr` passes `(RSSD_COLUMN, mdrm)` and exits 2 on layout drift instead of silently writing zero facts. **First live ingest will now surface MDRM domain-prefix mismatch (`RCOA`/`RCFD`/`RCON`) immediately** rather than producing a clean exit with `0 matched / N scanned`.
+
+6 new tests: `tests/unit/test_liquidity_handlers.py` (new file, 3 tests for gain/loss/at-par) + 3 added to `test_cdr_parser.py` (RCRI/RCRII collision, attached-token exclusion, missing-required-column raise). Total: **63 passing**.
+
+**Lesson learned:** running `/codex review` after declaring a chunk done caught three real bugs that the implementor's tests didn't surface — one was a spec-violation (HTM floor), two were silent-failure modes (substring collision, missing-column). Cheap insurance; should be routine before any squash-and-push.
 
 ## Database state (live Supabase)
 
@@ -87,7 +101,7 @@ See `docs/divergences.md` — single source of truth for `NotImplementedError` h
   for c in 4063 4214 110 11063 5510; do uv run peerbench compute --cert "$c" --quarters 8; done
   uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8 --write-snapshot docs/validation-snapshot.md
   ```
-  Expect the snapshot to grow from 13 mapped ratios to 15 (cet1, htm_loss_t1 join) and stay PASS. **First live ingest verifies the MDRM codes** (`RCOA8274`, `RCFD1773`) pinned in `src/peerbench/ingest/cdr_schema.py` — if `cet1` differs from `IDT1CER` by more than a couple bps, the domain prefix (`RCOA` vs `RCFD` vs `RCON`) likely needs adjustment.
+  Expect the snapshot to grow from 13 mapped ratios to 15 (cet1, htm_loss_t1 join) and stay PASS. **First live ingest verifies the MDRM codes** (`RCOA8274`, `RCFD1773`) pinned in `src/peerbench/ingest/cdr_schema.py`. Post-`88b6dea`, prefix drift fails loudly: if the live TSV header is missing the pinned column, `ingest-cdr` exits 2 with `Schedule ... is missing required column(s) [...]`. Swap the domain prefix in `_STABLE` (try `RCFD` ↔ `RCOA` ↔ `RCON`) and re-run. Soft drift (column present, value differs from `IDT1CER` by >2 bps) is still a manual call.
 - **`top_loan_cat` (deferred):** expand `src/peerbench/fdic_fields.py` with the rest of RC-C, re-ingest 5 banks, implement handler. Or defer to Phase 2 if the dashboard doesn't surface it in v1.
 - **Phase 2 kickoff:** Next.js 16 dashboard. Once cet1/htm ZIPs are staged and ratios recomputed, all 29 Phase-1-mandate ratios will be in the `ratios` table with the right values + restatement flagging; the frontend just needs to render them. See PLAN.md Phase 2 for the design contract and `docs/design.md` for the token spec.
 
@@ -96,7 +110,7 @@ See `docs/divergences.md` — single source of truth for `NotImplementedError` h
 `.env.local` is fully populated. Inside the project dir:
 
 ```bash
-uv run pytest                                       # 57 tests
+uv run pytest                                       # 63 tests
 uv run peerbench info                               # sanity: 30 handlers, 65 field codes (63 FDIC + 2 CDR)
 uv run peerbench seed-ratios                        # idempotent re-seed of ratio_defs
 uv run peerbench ingest --cert 4063 --quarters 1    # FDIC API: one bank, one quarter
@@ -158,11 +172,11 @@ Read these four files in order before touching anything:
 Then **verify the codebase + DB are in the expected clean state** — three quick checks:
 
 ```bash
-# 1. Git: working tree clean, at 8957249 (or beyond)
+# 1. Git: working tree clean, at 88b6dea (or beyond)
 git -C /Users/connortipton/Projects/Peerbench log --oneline -3
 git -C /Users/connortipton/Projects/Peerbench status --short
 
-# 2. Tests: should report "57 passed" with no skips
+# 2. Tests: should report "63 passed" with no skips
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 
 # 3. Validation gate: should report "PASS" with mean <2 bps, max <5 bps
