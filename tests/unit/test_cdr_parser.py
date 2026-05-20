@@ -195,11 +195,7 @@ def test_iter_schedule_rows_raises_when_required_column_missing(tmp_path: Path) 
     _make_zip(zip_path, {"FFIEC CDR Call Schedule RCRI 12312025.txt": bad_tsv})
     client = CdrClient(cache_dir=tmp_path)
     with pytest.raises(ValueError, match="missing required column"):
-        list(
-            client.iter_schedule_rows(
-                "2025-Q4", "RCRI", required_columns=(("RCOA8274",),)
-            )
-        )
+        list(client.iter_schedule_rows("2025-Q4", "RCRI", required_columns=(("RCOA8274",),)))
 
 
 def test_iter_schedule_rows_fans_in_across_split_files(tmp_path: Path) -> None:

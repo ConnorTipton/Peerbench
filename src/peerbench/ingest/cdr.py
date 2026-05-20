@@ -157,9 +157,7 @@ class CdrClient:
                     for row in reader:
                         if not header_validated:
                             missing_groups = [
-                                grp
-                                for grp in required_columns
-                                if not any(c in row for c in grp)
+                                grp for grp in required_columns if not any(c in row for c in grp)
                             ]
                             if missing_groups:
                                 seen = sorted(row.keys())
