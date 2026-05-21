@@ -33,7 +33,9 @@ jobs:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     steps:
-      - uses: actions/checkout@v4
+      # Pinned SHAs (rather than mutable tags) for supply-chain immutability.
+      # Bump intentionally; verify the version comment matches the SHA.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
       - name: Install PostgreSQL 15 client
         run: |
@@ -50,8 +52,16 @@ jobs:
           pg_dump "$DATABASE_URL" --schema-only --no-owner > /dev/null
 
       - name: Dump and gzip
+        # Tag the release with second-level precision so a same-day manual
+        # `workflow_dispatch` re-run after a successful scheduled run cannot
+        # collide on `backup-YYYY-MM-DD`. `gh release create` fails loudly
+        # on a duplicate tag, but failing loudly past a green run is still
+        # noisier than not colliding in the first place. Lexical sort on
+        # `backup-YYYY-MM-DD-HHMMSS` still matches chronological order
+        # (every component is zero-padded fixed-width), so the retention
+        # step's `sort -r | tail -n +9` math is unchanged.
         run: |
-          STAMP=$(date -u +%Y-%m-%d)
+          STAMP=$(date -u +%Y-%m-%d-%H%M%S)
           pg_dump "$DATABASE_URL" \
             --no-owner --no-privileges --format=plain \
             | gzip > "peerbench-${STAMP}.sql.gz"
