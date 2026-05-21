@@ -17,6 +17,15 @@ on:
 permissions:
   contents: write              # gh release create/delete needs write
 
+# Explicit `shell: bash` enables `-eo pipefail` (the implicit Linux default
+# is `bash -e {0}` — errexit only). Pipefail matters here: `pg_dump | gzip`
+# would silently publish an empty/partial backup if pg_dump failed without
+# it, and the retention step's `gh release list | jq | sort | tail | xargs`
+# pipe would silently no-op on a transient `gh` failure.
+defaults:
+  run:
+    shell: bash
+
 jobs:
   backup:
     runs-on: ubuntu-latest
