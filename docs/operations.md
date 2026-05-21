@@ -71,14 +71,37 @@ ALTER TABLE public.facts        DISABLE ROW LEVEL SECURITY;
 
 The `dashboard_read` policies survive a `DISABLE` — they're just no-ops while RLS is off, so re-enabling is a single `ALTER TABLE ... ENABLE` per table without re-running the migration. Only `DROP POLICY "dashboard_read" ON public.<name>` for a permanent rollback.
 
+### Post-rollback smoke test
+
+After a `DISABLE` → `ENABLE` cycle, confirm RLS is correctly restored. Run via the Supabase MCP (read-only is fine):
+
+1. Anon dashboard reads succeed:
+   ```sql
+   SELECT cert FROM public.institutions LIMIT 1;   -- expect 1 row
+   SELECT ratio_id FROM public.ratios LIMIT 1;     -- expect 1 row
+   ```
+2. Anon `facts` reads are blocked (RLS-on-no-policy):
+   ```sql
+   SELECT * FROM public.facts LIMIT 1;             -- expect 0 rows
+   ```
+3. Dashboard renders end-to-end: `cd web && npm run dev` → load `http://localhost:3000` → confirm the 30 × 5 matrix renders with the expected 5 restatement markers (4 NIM consumers on MidFirst Cert 4063, 1 CET1 marker on Bank OZK Cert 110).
+4. Pipeline still writes (service-role bypasses RLS):
+   ```bash
+   uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8
+   ```
+   Expect `Gate: PASS`.
+5. Advisor confirms posture: `mcp__supabase__get_advisors type=security` — the 6 "RLS Disabled in Public" findings should NOT reappear.
+
 ## Restore from a backup release
 
+Backup tags use second-level precision (`backup-YYYY-MM-DD-HHMMSS`) so same-day reruns don't collide.
+
 ```bash
-# Pick a backup tag
+# List recent backup tags
 gh release list --limit 20 | grep backup-
 
-# Download
-gh release download backup-YYYY-MM-DD --pattern "*.sql.gz"
+# Download a specific backup (substitute the actual tag from the list)
+gh release download backup-YYYY-MM-DD-HHMMSS --pattern "*.sql.gz"
 
 # Sanity-check the dump
 gunzip -c peerbench-*.sql.gz | head -50
@@ -97,10 +120,24 @@ The daily cron is the **only** Supabase keepalive. Supabase free-tier projects p
 
 ## Migration apply path
 
-Migrations land at `sql/migrations/0001_enable_rls.sql`, `0002_add_fk_indexes.sql`, etc.
+Migrations land at `sql/migrations/0001_enable_rls.sql`, `0002_add_fk_indexes.sql`, etc. The committed `.sql` files in `sql/migrations/` are the audit trail. The Phase 3 migrations (`0001` + `0002`) have already been applied to the live Supabase project.
 
-**Apply via Supabase MCP** (`mcp__supabase__apply_migration`) — single source of truth for what's been applied. The MCP wraps each migration call in a transaction; for migrations like `0001_enable_rls.sql` that already contain an explicit `BEGIN/COMMIT`, that's belt-and-suspenders but safe.
+**Apply path:** run the migration file through the project's pg8000/SQLAlchemy session (the same connection the pipeline uses via `DATABASE_URL`), e.g.:
 
-**Do not apply migrations via the Supabase SQL Editor** — it bypasses the MCP's migration tracking. If you ever need a manual apply, also record it in `mcp__supabase__list_migrations`.
+```bash
+uv run python -c "
+from sqlalchemy import text
+from peerbench.db import get_engine
+sql = open('sql/migrations/0001_enable_rls.sql').read()
+with get_engine().begin() as conn:
+    conn.execute(text(sql))
+"
+```
 
-`sql/schema.sql` is the canonical end-state document. A fresh clone + apply should yield a DB equivalent to running the migration sequence in order.
+The Supabase MCP server is **read-only** in this project (per CLAUDE.md), so `mcp__supabase__apply_migration` is not the path we use. `mcp__supabase__list_migrations` will not show these applies; the `git log` on `sql/migrations/` is the authoritative record.
+
+Migrations like `0001_enable_rls.sql` already contain an explicit `BEGIN/COMMIT`, so the file is atomic even when the SQLAlchemy session adds its own outer transaction wrapping.
+
+**Do not apply migrations via the Supabase SQL Editor** — it leaves no trace in `git log` and bypasses the audit trail.
+
+`sql/schema.sql` is the canonical end-state document. A fresh clone + apply of every migration in order should yield a DB equivalent to `sql/schema.sql`.
