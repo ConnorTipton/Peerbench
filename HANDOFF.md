@@ -1,76 +1,53 @@
-# Peerbench — handoff (2026-05-20 night, Phase 1 + Phase 2 Sprint 1 closed)
+# Peerbench — handoff (2026-05-21 evening, Phase 3 plumbing closed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md` (v1.3) before doing anything substantive.
 
 ## TL;DR
 
-- **Phase 1 is fully closed.** Validation gate `PASS` with N=540, mean=0.02 bps, max=0.51 bps. `cet1` joined the per-ratio table at 0.00/0.00 bps vs FDIC `IDT1CER`. `htm_loss_t1` is `ok` across the full 5-bank × 8-quarter grid. **`top_loan_cat` (RC-C expansion) is the only remaining `NotImplementedError`** — formally deferable to Phase 4 per `docs/divergences.md`.
-- **PR #2 (CDR ingest data-quality fix) merged at `3067950`.** Closed three bugs: wrong CET1 MDRM (`RCOA8274` → `(RCOAP859, RCFAP859)`), missing multi-column candidate lookup, and missing multi-file fan-in for column-split RC-B.
-- **PR #1 (Phase 2 Sprint 1 dashboard + polish) squash-merged at `e000cc1`.** Closes Sprint 1: Next.js 16 + Tailwind v4 scaffold, 30-ratio × 5-peer matrix for the latest quarter, anchor selector, sticky header/column, design tokens from `docs/design.md` in `@theme`. Polish landed before merge — per-cell restatement scoping via handler-AST-derived deps and a <1s load benchmark (see "Sprint 1 polish" below).
-- **Test count: 78 passing** (was 74 post-PR-#2; +4 tests for the field-deps contract + ingest scope + CBLR suppression-dep regression).
-- **Working tree:** on `main` @ `e000cc1`, clean (`.gitignore` carries an external `.gstack/` addition from gstack tooling, not from any of my work).
-- **DB state unchanged:** 5 banks × 8 quarters; 29 of 30 ratios `ok`; `top_loan_cat` lone `partial`.
+- **Phase 3 plumbing fully closed.** Three PRs squash-merged today (2026-05-21):
+  - **PR #3 @ `6f4385c`** — RLS migration (6 tables, 5 dashboard_read policies, `facts` service-only), FK covering indexes, daily-ingest cron, weekly pg_dump backup cron, ops runbook. Codex review reconciled pre-merge (1 P1 + 4 P2 all fixed; no findings deferred).
+  - **PR #4 @ `bc208e8`** — bump weekly-backup `pg_dump` client 15 → 17 (Supabase is on Postgres 17.6, planning doc had assumed 15).
+  - **PR #5 @ `4abac07`** — prepend `/usr/lib/postgresql/17/bin` to `$GITHUB_PATH` after install because GH Actions' ubuntu-latest pre-ships postgresql-client-16 and `pg_wrapper` was selecting v16 even with v17 installed alongside.
+- **Live verification banked:**
+  - 2 manual daily-ingest runs, the second producing **zero new `quality_log` rows** (idempotency proven via Supabase MCP query against the second run's window).
+  - 1 manual weekly-backup run, ending with release `backup-2026-05-21-205053` (108 KB `*.sql.gz`, header confirms `Dumped from database version 17.6 / pg_dump 17.10` — majors match).
+- **Test count: 78 passing** — unchanged by Phase 3 plumbing (no value-path code touched).
+- **Working tree:** on `main` @ `4abac07`, clean.
+- **DB state:** RLS enabled on all 6 public tables, `dashboard_read` policy on 5 of 6, `facts` intentionally service-role-only. Two FK covering indexes added.
+- **All 8 repo secrets are populated** (`FDIC_API_KEY`, `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `DATABASE_URL` for Phase 3; `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SENTRY_DSN`, `NEXT_PUBLIC_SENTRY_DSN` for Phase 3 PR #6).
 
-## What landed this session (Sprint 1 polish → PR #1 squash merge `e000cc1`)
+## What landed this session (PRs #3, #4, #5)
 
-Branch `phase-2-sprint-1-dashboard-scaffold`. Three additional commits on top
-of the prior 4 web commits before squash:
+### PR #3 — Phase 3 plumbing (squash-merge `6f4385c`)
 
-1. **`9a6dbd4` — `feat(ratio-engine):` handler field-dep extraction + snapshot CLI.**
-   New `src/peerbench/ratio_engine/field_deps.py` walks each handler's AST,
-   unions `RATIO_DEPENDENCIES` transitive closure, and merges
-   `SUPPRESS_KEY_FIELDS` (new in `suppression.py`: maps `suppress_when` keys
-   to FFIEC field codes). `peerbench export-field-deps` writes the snapshot
-   to `web/lib/ratio-field-deps.generated.json`. A new contract test
-   (`TestFieldDepsSnapshot`) enforces snapshot ↔ AST in lock-step.
-2. **`73177c6` — `fix(ingest):` scope restatement partial flip to consumer
-   ratios.** `ingest/quality_log.py` now flips
-   `Ratio.ratio_id IN (consumers_of_restated_field)` instead of every ratio
-   for the bank-quarter. Skips the UPDATE when the field has no registered
-   consumer.
-3. **`5370804` — `feat(web):` per-cell restatement marker keyed by
-   `ratio_id`.** `queries.ts` selects `field_code` from `quality_log`,
-   resolves to ratio_ids via the snapshot, builds
-   `Set<${cert}|${ratio_id}>`. Dashboard never sees raw field codes.
+Branch `phase-3-rls-cron-backup`. Nine commits squashed on merge (six implementation + three codex-fix follow-ups):
 
-### Sprint 1 polish — gap closure summary
+1. **`a6f2590` — `chore:` ignore .gstack/ tooling artifacts.**
+2. **`fd855e7` — `feat(db):` enable RLS with permissive read policy.** `sql/migrations/0001_enable_rls.sql` — single BEGIN/COMMIT wrapping 6 ALTER TABLEs + 5 dashboard_read policies. `facts` intentionally RLS-on-no-policy (service-role bypasses; dashboard never reads facts directly per `web/lib/queries.ts:74`).
+3. **`608e341` — `feat(db):` add FK covering indexes.** `sql/migrations/0002_add_fk_indexes.sql` — `facts.quarter_id` and `institutions.acquired_by` (cleared the 2 perf-advisor INFO findings).
+4. **`a3a3645` — `feat(cron):` daily FDIC ingest workflow.** `.github/workflows/daily-ingest.yml` — 03:00 UTC schedule + manual_dispatch, sequential 5-cert for-loop (single `uv sync` cost), idempotent upserts, doubles as Supabase keepalive.
+5. **`32ee2ec` — `feat(cron):` weekly pg_dump backup workflow.** `.github/workflows/weekly-backup.yml` — Sunday 04:00 UTC, uploads to private GitHub release, retains last 8 weekly dumps. DATABASE_URL must be session pooler (port 5432); transaction pooler (6543) silently rejects pg_dump.
+6. **`4f56a4b` — `docs:` Phase 3 operations runbook.** `docs/operations.md` — manual triggers, RLS rollback procedure, restore-from-backup, CDR manual refresh pointer, heartbeat note, migration apply path.
+7. **`74e5671` — codex P1 fix: enforce pipefail.** `defaults.run.shell: bash` at workflow level on `weekly-backup.yml` (implicit Linux runner shell is `bash -e {0}` without pipefail; `pg_dump | gzip` could have silently published empty/partial backup).
+8. **`10d0a5e` — codex P2 fixes: SHA-pin actions + timestamp backup tag.** Pinned `actions/checkout@v4` and bumped `astral-sh/setup-uv` v3 → v8.1.0 (both SHA-pinned). Backup tag now `backup-YYYY-MM-DD-HHMMSS` for collision avoidance on same-day reruns.
+9. **`fe66de5` — codex P2 fixes: ops doc accuracy + RLS smoke test.** Rewrote "Migration apply path" section to document the actual pg8000/SQLAlchemy apply path (Supabase MCP is read-only per CLAUDE.md). Added a post-rollback smoke test (anon SELECT institutions, anon SELECT facts blocked, dashboard renders, validate PASSes, advisor confirms).
 
-- **Gap (a) — per-cell restatement scoping.** Before: any restatement for
-  `(cert, quarter_id)` lit up every cell in that bank's column (60 cells of
-  180 with the current seed). After: 5 marked cells matching `docs/design.md`
-  exactly (4 NIM-consuming ratios on MidFirst + 1 CET1 on Bank OZK).
-  Verified end-to-end in browser.
-- **Gap (b) — <1s load benchmark.** Dev-mode timings on localhost:3000 with
-  Supabase round-trip: TTFB 566 ms, DOM Ready 614 ms, **Load 812 ms**, 80 KB
-  payload. Under the <1s spec even with Turbopack compile overhead; prod
-  build will be lower.
-- **Codex review:** 1 P1 (CBLRIND missing from suppression deps —
-  `tier1_rbc`/`total_rbc`/`cet1` would have skipped the partial flip on
-  CBLR-election changes) **fixed in `9a6dbd4`** via `SUPPRESS_KEY_FIELDS`.
-  2 P2s justified in PR body: (i) Python re-runs AST at runtime while web
-  reads the snapshot — contract test is the cross-layer guarantee; (ii)
-  `f.avg(...)` represents a field dep but not a temporal one (cross-quarter
-  recompute deferred to Sprint 2).
+**Codex review GATE on PR #3: FAIL → reconciled to clean.** 1 P1 (pipefail) + 4 P2s (backup-tag collision, SHA pinning, ops doc accuracy, RLS smoke test) all fixed on-branch; nothing deferred or justified.
 
-## Previously landed (PR #2, squash merge `3067950`)
+### PR #4 — pg_dump 15 → 17 (squash-merge `bc208e8`)
 
-Branch `fix-cdr-multi-column-and-multi-file` cut from `origin/main` at `77076c1`. Eight per-task commits squashed on merge:
+First manual `workflow_dispatch` of `weekly-backup.yml` failed at the smoke step:
 
-1. **`a6e451d` — schema map P859 candidates + plural `cdr_columns` API.** Switched `_STABLE` from `dict[str, str]` to `dict[str, tuple[str, ...]]`. Renamed `cdr_column` → `cdr_columns`.
-2. **`74b3585` — parser multi-file fan-in + group header check.** `_find_member` → `_find_members`. `required_columns` shape became `tuple[tuple[str, ...], ...]` (OR-within-group).
-3. **`d962fb9` — CLI first-non-empty value extraction.** `ingest-cdr` walks the candidate tuple via `pick_first_non_empty(row, candidates)`.
-4. **`81c6ebd` — per-member skip refinement.** Live RC-B 2025-Q4 turned out to be **column-split** (not row-split as the task brief said): part 1 has 242 cols incl. `RCFD1773`, part 2 has 62 disjoint `RCONG*` memo cols. Parser now skips members lacking the required group rather than failing per-file; raises only if NO matching member satisfies the groups.
-5. **`3bfe2a0` — post-fix snapshot.** Regenerated `docs/validation-snapshot.md`.
-6. **`80de7de` — `RCON1773` HTM fallback.** Live ingest revealed 4 of 5 banks populate `RCON1773` (domestic-only), only First-Citizens populates `RCFD1773`. Added the second candidate; same multi-column pattern as CET1.
-7. **`056332d` — divergences + cdr-ingest docs.** Moved `cet1` and `htm_loss_t1` to "fully resolved" in `docs/divergences.md`. Updated MDRM citations in `docs/cdr-ingest.md`.
-8. **`af75f93` — codex P2 cleanups.** Moved `_coerce_cdr_value` → `coerce_cdr_value` in `cdr.py`; added `src/peerbench/ingest/cdr.py` to `VALUE_PATH_MODULES`; `pick_first_non_empty` now warns on divergent populated candidates; `ingest-cdr` tracks `matched_certs` set per `(qid, label)` and prints `N/M certs matched` + a stderr WARN line on gaps; added a 3-file fan-in regression test + `coerce_cdr_value` roundtrip test; fixed inverted RCOA/RCFA prefix semantics in `docs/divergences.md`.
+```
+pg_dump: error: aborting because of server version mismatch
+pg_dump: detail: server version: 17.6; pg_dump version: 16.13
+```
 
-**Codex review GATE: PASS** (no P1s). All 5 P2s addressed in `af75f93`.
+Supabase upgraded the project to Postgres 17.6 (planning doc had assumed 15). Changed `postgresql-client-15` → `postgresql-client-17` in `weekly-backup.yml`. Pipefail caught the failure in 23 seconds with no empty/partial gzip artifact published.
 
-**Empirical pins (verified against `cache/cdr/2025-Q4.zip` on 2026-05-20):**
+### PR #5 — pg17 PATH prepend (squash-merge `4abac07`)
 
-- `CET1_CAPITAL → ("RCOAP859", "RCFAP859")` — Bank OZK `RCOAP859/RWAJT = 11.7244%` matches FDIC `IDT1CER` exactly.
-- `HTM_FAIRVAL → ("RCFD1773", "RCON1773")` — First-Citizens reports both equal at 31790000; the other 4 sample banks populate `RCON1773` only.
+PR #4's `apt install postgresql-client-17` succeeded, but `pg_dump --version` still reported 16.13. Cause: GH Actions' ubuntu-latest pre-ships postgresql-client-16, and `/usr/bin/pg_dump` is `pg_wrapper` selecting v16 even with v17 installed alongside. Appended `/usr/lib/postgresql/17/bin` to `$GITHUB_PATH` after install so subsequent steps invoke the v17 binary directly. Verified live: `Dumped by pg_dump version 17.10` in the resulting release artifact.
 
 ## Open items / state of play
 
@@ -81,130 +58,140 @@ Branch `fix-cdr-multi-column-and-multi-file` cut from `origin/main` at `77076c1`
 ### Phase 2 — Sprint 1 closed (PR #1 merged at `e000cc1`)
 - Dashboard renders the 30-ratio × 5-peer matrix for the latest renderable quarter (2025-Q4). Real institution names, anchor tint on MidFirst column, sticky header + first column, design tokens from `docs/design.md` encoded in Tailwind v4 `@theme`.
 - Restatement marker is per-cell (per `docs/design.md` spec), keyed by `(cert, ratio_id)`. The field→ratio mapping comes from `web/lib/ratio-field-deps.generated.json`, derived from handler ASTs by `peerbench export-field-deps`. Contract test `TestFieldDepsSnapshot` keeps it in lock-step with handler bodies.
-- Load time: 812 ms in dev mode on localhost (TTFB 566 ms, DOM Ready 614 ms, 80 KB payload). Production will be lower.
+- Load time: 812 ms in dev mode on localhost.
 
-### Phase 2 — Sprint 2 onward (next up)
+### Phase 2 — Sprint 2 onward (deferred)
 - Per-peer sort, ratio category collapse/expand, drill-down detail view per `PLAN.md` v1.3.
 - Restatement tooltip: `queries.ts` already pulls `old_value`/`new_value`/`detected_at` from `quality_log`; UI work remains.
-- Cross-quarter recompute for `f.avg(...)` consumers (codex P2 from PR #1 — a restatement to a prior quarter's `DEPI` should mark the current quarter's `cost_funds`/`nis` too).
-- Dashboard polish per `docs/design.md` — conditional formatting heat map (top/bottom quartile tints), regulatory threshold amber flags.
+- Cross-quarter recompute for `f.avg(...)` consumers (codex P2 from PR #1).
+- Conditional formatting heat map, regulatory threshold amber flags.
 
-### Phase 3 — Hosting & cron (not started)
-- Daily ingest cron via GitHub Actions. Weekly Supabase backup. Vercel Hobby deploy of `web/`.
-- Supabase RLS still disabled; pre-prod work to enable RLS + add a permissive read policy (public FFIEC data, low blast radius).
+### Phase 3 — plumbing closed (this session); deploy + observability remaining
+- **Daily ingest cron: green ×2, idempotency proven.** Cron next fires 03:00 UTC on subsequent days; the "3 consecutive green daily runs on different days" DoD gate just needs calendar time (today=1, Fri+Sat will tick #2 and #3 automatically).
+- **Weekly backup cron: green ×1, artifact verified.** Next scheduled fire is Sunday 04:00 UTC.
+- **Vercel deploy NOT done.** PR #6 will land it.
+- **Sentry NOT wired.** PR #6 will land it.
+- **`actions/checkout` Node 20 → Node 24 — URGENT.** GH is force-bumping the Node runtime on June 2, 2026 (12 days from today). Current SHA pin is `actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5` (v4, Node 20). Need to bump to v5 or v6 (Node 24 native) in both `daily-ingest.yml` and `weekly-backup.yml` before then. Trivial 1-line PR per file.
 
-### Phase 4 — Polish (not started)
+### Phase 4 — polish (not started)
 - Insights generation, Excel export from `ratios` table, README + Loom.
 
-## What's NOT changed by PR #1 polish
-
-- Handler bodies (`compute_*`) — untouched; AST snapshot clean. All handlers stay at `version="v1"` per the Phase 1 contract.
+## What's NOT changed by Phase 3
+- Handler bodies — untouched; AST snapshot clean. All handlers stay at `version="v1"` per the Phase 1 contract.
 - `data/ratios.csv` — untouched.
 - `tests/contract/handler_ast_snapshot.json` — untouched.
-- Validation gate — untouched. `peerbench validate` still PASS at mean 0.02 bps / max 0.51 bps; PR #1 added no ratio definitions or formula changes.
+- Validation gate — untouched. `peerbench validate` still PASS at mean 0.02 bps / max 0.51 bps.
+- `web/` — untouched. Dashboard still reads via anon key; RLS posture is transparent because dashboard reads only the 5 policied tables.
 
 ## Quick verify (run when picking up the session)
 
 ```bash
-git -C /Users/connortipton/Projects/Peerbench log main -2 --oneline
-# Expect:
-#   e000cc1 Phase 2 Sprint 1 — Next.js 16 scaffold + ratio matrix (#1)
-#   3067950 fix(ingest): CDR multi-column lookup + multi-file fan-in ... (#2)
+git -C /Users/connortipton/Projects/Peerbench log main -5 --oneline
+# Expect (top to bottom):
+#   4abac07 fix(cron): prepend pg17 bin dir to PATH after install (#5)
+#   bc208e8 fix(cron): bump weekly-backup pg_dump client 15 → 17 (#4)
+#   6f4385c Phase 3 — RLS + daily cron + weekly backup + runbook (#3)
+#   982dbb4 docs(handoff): point next-chat prompt at Phase 3 hosting
+#   58035aa docs(handoff): refresh post-PR-#1 — Sprint 1 closed, per-cell scoping landed
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 78 passed
 
-uv run peerbench export-field-deps --out /tmp/check.json
-diff /tmp/check.json web/lib/ratio-field-deps.generated.json
-# Expect: identical (no diff). Drift means a handler edit landed without
-# regenerating the snapshot — re-run `peerbench export-field-deps` and
-# commit the JSON.
+cd web && npm run build 2>&1 | tail -5
+# Expect: clean build (no value-path code changed by Phase 3 plumbing)
 
-cd web && npm install && npm run dev
-# Open http://localhost:3000 — confirm:
-#   • MidFirst column: `r` superscript on NIM, Efficiency Ratio, PPNR,
-#     Non-int Inc/Rev (4 NIM consumers)
-#   • Bank OZK column: `r` on CET1 only
-#   • Other peer columns: no `r` markers
+gh run list --workflow=daily-ingest.yml --limit 3
+# Expect: at least 1 ✓ run from today; subsequent ✓ runs on 03:00 UTC fires
+
+gh release list --limit 3 | grep backup-
+# Expect: backup-2026-05-21-205053 (108 KB)
 ```
 
 If any diverge, surface to the user before doing substantive work.
 
 ## How to run things (smoke commands)
 
-`.env.local` and `web/.env.local` are populated.
+`.env.local` and `web/.env.local` are populated. All 8 repo secrets are populated for GH Actions.
 
 ```bash
 # Python pipeline
 uv run pytest                                       # 78 tests
 uv run peerbench info                               # 30 handlers, 65 field codes
 uv run peerbench ingest --cert 4063 --quarters 1    # FDIC API
-uv run peerbench ingest-cdr --certs 4063,4214,110,11063,5510 --quarters 8  # CDR ZIPs
 uv run peerbench compute --cert 4063 --quarters 1   # compute ratios
 uv run peerbench validate --certs 4063 --quarters 1 # bp diff vs FDIC precomputed
 uv run peerbench export-field-deps                  # regenerate handler→field snapshot
 
 # Dashboard
 cd web && npm install && npm run dev                # http://localhost:3000
+
+# Cron triggers (live)
+gh workflow run daily-ingest.yml --ref main
+gh workflow run weekly-backup.yml --ref main
+gh run list --workflow=daily-ingest.yml --limit 5
+gh release list --limit 5
 ```
 
 ## Architecture conventions to honor
 
 (Also in `CLAUDE.md`; repeated so they survive into a fresh context.)
 
-- **Decimal end-to-end.** No `float(` casts in the value path. Contract test enforces against `VALUE_PATH_MODULES` which now includes `src/peerbench/ingest/cdr.py`.
-- **CDR value coercion** is centralized at `peerbench.ingest.cdr.coerce_cdr_value(raw)`. Callers must NOT add a second str→Decimal coercion point.
-- **CDR candidate lookup:** `cdr_columns(quarter_id, label)` returns `tuple[str, ...]`. Callers walk the tuple via `pick_first_non_empty(row, columns)`. Schema map is the source of truth.
-- **Parser `required_columns`** semantic is OR-within-group, AND-across-groups, with per-member skip and aggregate fail-loud. Don't bypass.
+- **Decimal end-to-end.** No `float(` casts in the value path. Contract test enforces against `VALUE_PATH_MODULES`.
 - **Ratio handler registry.** Every ratio has a row in `ratio_defs` AND a registered handler. Contract test enforces 1:1 + AST-hash drift detection.
-- **All handler versions stay at `"v1"`.** Phase 1 hasn't shipped externally. To change a handler body: edit, delete `tests/contract/handler_ast_snapshot.json`, run pytest once to regenerate, then run again clean.
-- **Handler field-dependency snapshot.** `peerbench export-field-deps` walks each handler's AST and writes `web/lib/ratio-field-deps.generated.json`. The ingest restatement callback and the dashboard's per-cell marker both consume it. After any handler edit that touches field references, regenerate and commit; the contract test will fail otherwise. New `suppress_when` keys also require an entry in `SUPPRESS_KEY_FIELDS` in `ratio_engine/suppression.py`.
+- **All handler versions stay at `"v1"`.** Phase 1 hasn't shipped externally.
+- **Handler field-dependency snapshot.** `peerbench export-field-deps` walks each handler's AST and writes `web/lib/ratio-field-deps.generated.json`. After any handler edit that touches field references, regenerate and commit.
 - **No formula logic in TS or Excel.** Dashboard and (future) Excel export read `ratios.value` only.
 - **Post-CECL nomenclature.** ACL, never ALLL.
+- **RLS posture (NEW this session).** `dashboard_read` policy on `institutions`/`quarters`/`ratio_defs`/`ratios`/`quality_log`. `facts` is service-role-only (intentional RLS-on-no-policy). Pipeline writes via service-role key which bypasses RLS. Dashboard reads via anon key against the 5 policied tables. **Do not add an anon policy to `facts`** — the dashboard never queries it directly.
+- **DATABASE_URL must be the session pooler (port 5432)** for `pg_dump` to work. Transaction pooler (6543) silently rejects `pg_dump`.
+- **GH Actions runners ship postgresql-client-16 pre-installed.** Any future workflow that uses `pg_dump` against Supabase must explicitly prepend `/usr/lib/postgresql/17/bin` to `$GITHUB_PATH` after installing `postgresql-client-17` (see `weekly-backup.yml` for the pattern).
+- **GitHub Actions implicit Linux shell is `bash -e {0}` (no pipefail).** Workflows that pipe data through `gzip`/`jq`/etc must set `defaults.run.shell: bash` at workflow level to get `-eo pipefail`. Pattern is in `weekly-backup.yml`.
 
 ## What NOT to redo
 
 - **Don't re-stage CDR ZIPs** — `cache/cdr/2024-Q1.zip` … `2025-Q4.zip` are present (+ 2026-Q1.zip extra not yet used).
 - **Don't re-apply institution names** — already in DB.
-- **Don't re-ingest the 5 banks** unless explicitly asked. Re-ingest is idempotent; not destructive but unnecessary.
+- **Don't re-ingest the 5 banks** unless explicitly asked. Re-ingest is idempotent.
 - **Don't bump handler `version="v1"`** during Phase 1.
 - **Don't trust BOK cert 4862 or Cullen/Frost cert 5560** — inactive. Use **4214** and **5510**.
+- **Don't re-apply the RLS migration via Supabase MCP** — it's already applied via the project's pg8000/SQLAlchemy session. The committed `.sql` files in `sql/migrations/` are the audit trail.
+- **Don't push pg_dump against the transaction pooler (6543)** — it silently fails. Session pooler (5432) only.
 
 ## Today's date
 
-2026-05-20 (night session). Most recent finalized quarter (90-day publication latency) is **2025-Q4** (`report_date = 2025-12-31`). 2026-Q1 will publish ~late June 2026.
+2026-05-21 (evening session). Most recent finalized quarter (90-day publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## User context / preferences
 
 - Connor, prepping for Summer 2026 FP&A internship at MidFirst Bank.
 - Solo developer, fresh repo, doubles as portfolio material.
 - High autonomy ("just go with your best recommendations") but wants a heads-up before live DB changes, force-pushes, or other irreversible actions.
-- Prefers check-ins at chunk boundaries; not narration of every step.
+- Prefers check-ins at chunk boundaries; terse responses; no narration of every step.
 - Uses `/codex review` as a routine pre-merge gate; treats codex P2s as worth fixing or explicitly justifying.
+- For trivial fixes: branch + PR, then squash-merge after one-line confirmation. Same pattern is used for codex-review follow-ups on a larger PR.
 
 ## Recommended first action
 
-**Phase 3 hosting** — daily ingest cron via GH Actions (also serves as the
-Supabase 7-day inactivity heartbeat), Supabase RLS enable + permissive read
-policy migration, Vercel Hobby deploy of `web/`, weekly `pg_dump` backup.
-Highest leverage because: (1) the daily cron is what catches FDIC
-restatements within a day; (2) Vercel deploy makes the dashboard demoable
-for the internship; (3) RLS must land before any public deploy regardless.
+**PR #6 — Vercel deploy + Sentry.** This closes the Phase 3 DoD ("production deploy live + Sentry receiving events"). Phase 3 plumbing observability gate ("3 consecutive green daily runs") is on its own clock and doesn't block this PR.
 
-The next-chat prompt is at `~/.claude/plans/phase-3-hosting-prep.md`. Paste
-it into a fresh Claude Code chat with plan mode active.
+The plan is at `~/.claude/plans/next-chat-prompt-jolly-parrot.md`, "PR #4 — Vercel deploy + Sentry" section (yes, the file still numbers it #4 because the plan was written before PR #4 = pg-client fix and PR #5 = PATH prepend used the slot; the actual GitHub PR will be #6).
 
-Alternatives if you'd rather defer hosting:
+Outline:
+1. **Sentry SDK ↔ Next.js 16 compat check first.** Query Context7 against `/websites/sentry_io_platforms_javascript_guides_nextjs` for "Next.js 16 Turbopack setup" before touching config. Confirm v8+ SDK supports Next 16.2.6 + React 19.2 + Turbopack stable, and that `npx @sentry/wizard@latest -i nextjs` is still the documented path.
+2. **Run the Sentry wizard from `web/`.** Let it generate `instrumentation.ts`, `instrumentation-client.ts`, `sentry.server.config.ts`, `sentry.edge.config.ts`, `app/global-error.tsx`. Inspect every file it touched; back out any deviations from Peerbench conventions (no `any`, no formula logic in TS).
+3. **Verify `withSentryConfig` keeps source-map upload conditional on `SENTRY_AUTH_TOKEN` presence** so local `npm run build` works without it.
+4. **Vercel project setup** with Root Directory = `web`, framework = Next.js auto-detected. Production env vars: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_SENTRY_DSN`, `SENTRY_DSN`, `SENTRY_AUTH_TOKEN` (sentry.io with `project:releases` scope), `SENTRY_ORG`, `SENTRY_PROJECT`. **Do not** set `SUPABASE_SERVICE_ROLE_KEY` in Vercel.
+5. **Production smoke after first deploy:** page loads <1s, 30×5 matrix renders, restatement markers correct, design tokens applied, Sentry `captureException` lands in dashboard within 30s.
+6. **`/codex review` before opening PR** (use the prompt template Connor's pasting separately).
 
-- **Phase 2 Sprint 2** — per-peer sort, ratio category collapse/expand,
-  drill-down detail view, restatement tooltip (data already pulled in
-  `queries.ts`), conditional-formatting tints per `docs/design.md`.
-- **Phase 4 Excel export starter** — CLI scaffold for
-  `peerbench export --quarter --output` reading from the `ratios` table
-  per `docs/design.md` §"Excel export design parity". Probably wait until
-  the dashboard is hosted so the workbook can be validated against the
-  production view.
+### Urgent maintenance — wrap in a tiny PR before PR #6 if you want
 
-The continuation prompt at `~/.claude/plans/phase-2-sprint-1-continuation.md`
-is obsolete and can be deleted. The plan file used for the just-closed
-session is at `~/.claude/plans/next-chat-prompt-humming-taco.md`.
+**`actions/checkout` Node 20 deprecation.** GH force-bumps to Node 24 on **June 2, 2026** (12 days from today). The pin in both `daily-ingest.yml` and `weekly-backup.yml` is currently `actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5` (v4, Node 20). Bump to v5 or v6 (Node 24 native) — one-line edit per file, get SHAs via `gh api repos/actions/checkout/git/refs/tags/v5` (or v6). Acceptable to defer until after PR #6 if scope-managing; not acceptable to defer past June 2.
+
+## Definition of done for PR #6 (per `PLAN.md` Phase 3 DoD + this session's reality)
+
+- Production deploy live at a Vercel URL serving the 30 × 5 matrix.
+- Sentry receiving events (Connor will smoke-test).
+- Source-map upload conditional on `SENTRY_AUTH_TOKEN` (so local builds work without it).
+- `/codex review` passes (P1 fixed on-branch, P2s decided).
+- The "3 consecutive green daily-ingest runs on different days" gate ticks independently; doesn't block PR #6.
