@@ -42,11 +42,18 @@ jobs:
         # dump a server whose major version is newer than the client (it
         # aborts with "server version mismatch"). The pgdg apt source ships
         # `postgresql-client-17`; pin to match the server major.
+        #
+        # GH Actions' ubuntu-latest image pre-ships postgresql-client-16,
+        # and `/usr/bin/pg_dump` is `pg_wrapper` which (in this image)
+        # resolves to the v16 binary even after v17 is installed alongside.
+        # Prepend the v17 bin dir to GITHUB_PATH so subsequent steps invoke
+        # the v17 `pg_dump` directly, bypassing the wrapper.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo apt-get update
           sudo apt-get install -y postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
 
       - name: Smoke pg_dump against the session pooler
         # Schema-only first so a misconfigured DATABASE_URL fails fast
