@@ -37,12 +37,16 @@ jobs:
       # Bump intentionally; verify the version comment matches the SHA.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
 
-      - name: Install PostgreSQL 15 client
+      - name: Install PostgreSQL 17 client
+        # The live Supabase project is on Postgres 17.6. pg_dump refuses to
+        # dump a server whose major version is newer than the client (it
+        # aborts with "server version mismatch"). The pgdg apt source ships
+        # `postgresql-client-17`; pin to match the server major.
         run: |
           sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
           wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
           sudo apt-get update
-          sudo apt-get install -y postgresql-client-15
+          sudo apt-get install -y postgresql-client-17
 
       - name: Smoke pg_dump against the session pooler
         # Schema-only first so a misconfigured DATABASE_URL fails fast
