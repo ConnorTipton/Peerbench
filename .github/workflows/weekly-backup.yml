@@ -1,0 +1,88 @@
+name: weekly-backup
+
+# Supabase free tier has no automated backups. This workflow runs pg_dump
+# once a week and uploads the gzipped dump to a private GitHub release
+# tagged `backup-YYYY-MM-DD`. Retention is the last 8 weeks.
+#
+# IMPORTANT — DATABASE_URL must be the Supabase SESSION pooler URI
+# (port 5432). The transaction pooler (port 6543) silently rejects
+# pg_dump because it doesn't support session-level SET TRANSACTION
+# SNAPSHOT. See docs/operations.md for the connection-string source.
+
+on:
+  schedule:
+    - cron: '0 4 * * 0'        # Sunday 04:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write              # gh release create/delete needs write
+
+# Explicit `shell: bash` enables `-eo pipefail` (the implicit Linux default
+# is `bash -e {0}` — errexit only). Pipefail matters here: `pg_dump | gzip`
+# would silently publish an empty/partial backup if pg_dump failed without
+# it, and the retention step's `gh release list | jq | sort | tail | xargs`
+# pipe would silently no-op on a transient `gh` failure.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      # Pinned SHAs (rather than mutable tags) for supply-chain immutability.
+      # Bump intentionally; verify the version comment matches the SHA.
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4
+
+      - name: Install PostgreSQL 15 client
+        run: |
+          sudo sh -c 'echo "deb http://apt.postgresql.org/pub/repos/apt $(lsb_release -cs)-pgdg main" > /etc/apt/sources.list.d/pgdg.list'
+          wget --quiet -O - https://www.postgresql.org/media/keys/ACCC4CF8.asc | sudo apt-key add -
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client-15
+
+      - name: Smoke pg_dump against the session pooler
+        # Schema-only first so a misconfigured DATABASE_URL fails fast
+        # before we waste time dumping the full dataset.
+        run: |
+          pg_dump --version
+          pg_dump "$DATABASE_URL" --schema-only --no-owner > /dev/null
+
+      - name: Dump and gzip
+        # Tag the release with second-level precision so a same-day manual
+        # `workflow_dispatch` re-run after a successful scheduled run cannot
+        # collide on `backup-YYYY-MM-DD`. `gh release create` fails loudly
+        # on a duplicate tag, but failing loudly past a green run is still
+        # noisier than not colliding in the first place. Lexical sort on
+        # `backup-YYYY-MM-DD-HHMMSS` still matches chronological order
+        # (every component is zero-padded fixed-width), so the retention
+        # step's `sort -r | tail -n +9` math is unchanged.
+        run: |
+          STAMP=$(date -u +%Y-%m-%d-%H%M%S)
+          pg_dump "$DATABASE_URL" \
+            --no-owner --no-privileges --format=plain \
+            | gzip > "peerbench-${STAMP}.sql.gz"
+          echo "STAMP=$STAMP" >> "$GITHUB_ENV"
+          ls -lh "peerbench-${STAMP}.sql.gz"
+
+      - name: Upload to private release
+        run: |
+          gh release create "backup-${STAMP}" \
+            --prerelease \
+            --title "Peerbench DB backup ${STAMP}" \
+            --notes "Weekly pg_dump from Supabase production. Restore: see docs/operations.md." \
+            "peerbench-${STAMP}.sql.gz"
+
+      - name: Retain the most recent 8 backups
+        # Lists all backup-* tags newest-first; everything past the 8th
+        # gets deleted with its tag. xargs -r is a no-op when the input
+        # is empty (i.e. under 8 backups exist yet).
+        run: |
+          gh release list --limit 100 --json tagName \
+            | jq -r '.[] | select(.tagName | startswith("backup-")) | .tagName' \
+            | sort -r \
+            | tail -n +9 \
+            | xargs -r -I{} gh release delete {} --yes --cleanup-tag
