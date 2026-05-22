@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 evening, Phase 3 closed end-to-end on prod)
+# Peerbench — handoff (2026-05-22 late evening, Phase 3 closed + PRs #9/#10 merged)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,7 +6,7 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
-- **Phase 3 fully closed in production.** Three PRs squash-merged today
+- **Phase 3 fully closed in production.** Five PRs squash-merged today
   (2026-05-22) on top of the plumbing landed yesterday:
   - **PR #6 @ `75e5205`** — Vercel deploy + Sentry. Hand-configured Sentry on
     Next.js 16 + Turbopack (`@sentry/nextjs@10.53.1`), v8+ layout
@@ -16,13 +16,21 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     `SENTRY_AUTH_TOKEN`. Codex review PASS, 0 findings.
   - **PR #7 @ `7f177d2`** — sticky table header + first column fix
     (Phase 2 Sprint 1 DoD bug, pre-existing on main since PR #1). 3-line
-    diff: `<main>` is now `flex h-screen flex-col`, matrix wrapper is
-    `flex-1 overflow-auto`, table is `border-separate border-spacing-0`.
+    diff: `<main>` is now `flex h-dvh flex-col`, matrix wrapper is
+    `flex-1 min-h-0 overflow-auto`, table is `border-separate border-spacing-0`.
+    (The `h-dvh` + `min-h-0` refinement came in via PR #10.)
   - **PR #8 @ `eac9f16`** — Sentry tunnel route (`/monitoring`) to bypass
     ad blockers. 3-line diff to `next.config.ts`.
-- **PR #9 is OPEN, awaiting codex review** — `actions/checkout` v4 → v6.0.2
-  (Node 24 native, ahead of GitHub's 2026-06-02 Node-runtime force-bump).
-  2-line diff to `.github/workflows/{daily-ingest,weekly-backup}.yml`.
+  - **PR #9 @ `8492adb`** — `actions/checkout` v4 → v6.0.2 (Node 24 native,
+    ahead of GitHub's 2026-06-02 Node-runtime force-bump). 2-line diff to
+    `.github/workflows/{daily-ingest,weekly-backup}.yml`. Codex review on
+    the cumulative #7/#8/#9 diff: GATE PASS, 0 P1; both P2s landed via
+    PR #10; 1 P3 deferred.
+  - **PR #10 @ `14a7a13`** — codex P2 hotfix against the PR #7 surface.
+    `<main>` `h-screen` → `h-dvh` (mobile Safari URL-bar quirk), add
+    `min-h-0` to the matrix `flex-1 overflow-auto` wrapper (robust
+    contained scrolling), section header row `border-y` → `border-b`
+    (kills double separator under `border-separate`). 3-line diff.
 - **Live verification banked today:**
   - Production deploy: https://peerbench-web.vercel.app/ — HTTP 200,
     warm TTFB 330–600 ms (DoD target <1 s), 30×5 ratio matrix renders,
@@ -37,10 +45,9 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     2026-05-23 and 2026-05-24.
 - **Test count: 78 passing** — unchanged this session (no value-path code
   touched).
-- **Working tree:** on `main` @ `eac9f16` (will move forward after the
-  HANDOFF commit and again after PR #9 merges), clean.
+- **Working tree:** on `main` @ `14a7a13`, clean.
 
-## What landed this session (PRs #6, #7, #8)
+## What landed this session (PRs #6, #7, #8, #9, #10)
 
 ### PR #6 — Phase 3 hosting (squash-merge `75e5205`)
 
@@ -108,9 +115,9 @@ pattern, so client events from his browser are still blocked. Not a
 problem for the DoD or for other users; for portfolio demos on default
 Chrome, the tunnel works.)
 
-## PR #9 — actions/checkout v4 → v6 (OPEN, awaiting codex review)
+### PR #9 — actions/checkout v4 → v6.0.2 (squash-merge `8492adb`)
 
-Branch `chore-actions-checkout-node24`. Single commit `bfcb601`.
+Branch `chore-actions-checkout-node24`. Single commit `bfcb601` → squash.
 
 **Why now:** GitHub Actions force-bumps the Node runtime for
 JavaScript-based actions from Node 20 to Node 24 on **2026-06-02**
@@ -132,7 +139,38 @@ human-readable but the SHA is the contract.
 (2026-01-09, tag-handling bug fix). Both v5 and v6 are Node 24 native.
 Both workflows use default checkout with no `with:` inputs, so the
 v5→v6 surface changes (auth style cleanup, fetch-tags refspec
-behavior) have zero blast radius.
+behavior) have zero blast radius. v6 also moves credential persistence
+to `$RUNNER_TEMP`, but neither workflow uses Docker container actions
+or authenticated git operations beyond initial checkout, so no behavior
+delta.
+
+### PR #10 — codex P2 hotfix (squash-merge `14a7a13`)
+
+Branch `fix-sticky-table-borders-and-viewport`. Single commit `753dba0`
+→ squash. Closes the two P2 findings from the cumulative codex review of
+PRs #7/#8/#9.
+
+**Diff (3 lines):**
+
+- `web/app/page.tsx:25` — `flex h-screen flex-col` → `flex h-dvh flex-col`.
+  Mobile Safari's dynamic URL bar makes `100vh` overflow the actual
+  visible viewport; `100dvh` resolves to the visible area on every
+  client.
+- `web/components/ratio-matrix.tsx:112` — added `min-h-0` to the
+  `flex-1 overflow-auto` wrapper. Default `min-height: auto` on a flex
+  item can prevent shrink-to-fit; explicit `min-h-0` makes contained
+  scrolling robust on every viewport.
+- `web/components/ratio-matrix.tsx:152` — section row
+  `border-y border-border` → `border-b border-border`. Under
+  `border-separate border-spacing-0`, the top border doubled against
+  the preceding data row's `border-b`. Single-sided separator now.
+
+Pure Tailwind class changes; no runtime behavior change; lint clean.
+
+**Codex cumulative review reconciled:** GATE PASS (0 P1). Both P2s
+shipped via this PR. 1 P3 remains — anchor tint `6%` hardcoded as
+inline style at `ratio-matrix.tsx:133`. Deferred to the Phase 4 design
+pass; informational, not blocking.
 
 ## Open items / state of play
 
@@ -146,8 +184,10 @@ behavior) have zero blast radius.
 
 - Dashboard renders the 30-ratio × 5-peer matrix for the latest renderable
   quarter (2025-Q4). Real institution names, anchor tint on MidFirst column,
-  **sticky header + first column now actually sticky on scroll (PR #7)**,
-  design tokens from `docs/design.md` encoded in Tailwind v4 `@theme`.
+  **sticky header + first column now actually sticky on scroll (PR #7),
+  with mobile-Safari-safe `h-dvh` viewport + clean single-line section
+  separators (PR #10)**, design tokens from `docs/design.md` encoded in
+  Tailwind v4 `@theme`.
 - Restatement marker is per-cell, keyed by `(cert, ratio_id)`. The
   field→ratio mapping comes from `web/lib/ratio-field-deps.generated.json`,
   derived from handler ASTs by `peerbench export-field-deps`. Contract
@@ -184,9 +224,9 @@ behavior) have zero blast radius.
 - **Weekly backup cron:** last green firing 2026-05-21T20:50 UTC
   (release `backup-2026-05-21-205053`, 108 KB). Next scheduled fire:
   2026-05-24T04:00 UTC.
-- **PR #9 (actions/checkout v6 bump):** OPEN. Awaiting codex review.
-  Trivial diff but the SHA-pin verification is the kind of thing a
-  generic codex review catches well.
+- **PR #9 (actions/checkout v6 bump):** MERGED at `8492adb`. Cumulative
+  codex review of PRs #7/#8/#9 reconciled clean (0 P1; 2 P2s landed via
+  PR #10; 1 P3 deferred). Node 20 deadline closed 11 days early.
 
 ### Phase 4 — not started
 
@@ -206,25 +246,28 @@ behavior) have zero blast radius.
   0.02 bps / max 0.51 bps.
 - RLS posture — unchanged from PR #3. Dashboard reads via anon key
   against the 5 policied tables; `facts` stays service-role-only.
-- SQL migrations, GH Actions workflows (until PR #9 lands the
-  checkout bump).
+- SQL migrations. (GH Actions workflows changed in PR #9 — checkout SHA
+  bump only; no behavior change.)
 
 ## Quick verify (run when picking up the session)
 
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PR-#8 — Phase 3 closed on prod, PR #9 open
+#   <new HANDOFF commit>  docs(handoff): post-PRs #9/#10 — Sprint 2 next
+#   14a7a13  fix(web): h-dvh viewport + remove section row double border (#10)
+#   8492adb  chore(ci): bump actions/checkout v4 → v6.0.2 (Node 24 native) (#9)
+#   4804a00  docs(handoff): post-PR-#8 — Phase 3 closed on prod, PR #9 open
 #   eac9f16  feat(web): proxy Sentry events through /monitoring tunnel
 #   7f177d2  fix(web): sticky table header + first column on scroll
 #   75e5205  Phase 3 — Vercel deploy + Sentry
 #   dae4ba0  docs(handoff): post-PR-#5 — Phase 3 plumbing closed end-to-end
-#   4abac07  fix(cron): prepend pg17 bin dir to PATH after install (#5)
-#   bc208e8  fix(cron): bump weekly-backup pg_dump client 15 → 17 (#4)
-#   6f4385c  Phase 3 — RLS + daily cron + weekly backup + runbook (#3)
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 78 passed
+
+cd web && npm run lint 2>&1 | tail -3
+# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:109).
 
 cd web && npm run build 2>&1 | tail -8
 # Expect: clean Turbopack compile. If SENTRY_AUTH_TOKEN is set,
@@ -234,9 +277,6 @@ cd web && npm run build 2>&1 | tail -8
 gh run list --workflow=daily-ingest.yml --limit 5
 # Expect: today's 06:48 UTC scheduled run = success; tomorrow + the
 # day after should add two more green entries (~03:00 UTC each).
-
-gh pr view 9 --json state,mergeable
-# Expect: OPEN, MERGEABLE. Codex review still owed.
 
 curl -sI https://peerbench-web.vercel.app/ | head -3
 # Expect: HTTP/2 200, server: Vercel.
@@ -324,11 +364,15 @@ open https://peerbench.sentry.io/projects/peerbench-web/
   Route Handler injected by `withSentryConfig`. Adds ~1 Vercel
   serverless invocation per Sentry event; comfortably inside Hobby
   1M/month quota at our `tracesSampleRate: 0.1`.
-- **Sticky table layout (PR #7).** `app/page.tsx`'s `<main>` is
-  `flex h-screen flex-col`; the matrix wrapper inside
-  `RatioMatrix` is `flex-1 overflow-auto`; the `<table>` uses
-  `border-separate border-spacing-0`. Don't refactor any of these
-  three pieces in isolation; sticky behavior depends on all three.
+- **Sticky table layout (PR #7 + PR #10).** `app/page.tsx`'s `<main>` is
+  `flex h-dvh flex-col`; the matrix wrapper inside `RatioMatrix` is
+  `flex-1 min-h-0 overflow-auto`; the `<table>` uses `border-separate
+  border-spacing-0`. Don't refactor any of these four pieces in
+  isolation — sticky behavior depends on all of them, and `min-h-0`
+  specifically defends against the default `min-height: auto` on flex
+  items preventing shrink-to-fit. Section rows use `border-b` only
+  (not `border-y`) to avoid double separators with the preceding data
+  row's bottom border.
 
 ## What NOT to redo
 
@@ -380,20 +424,20 @@ publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## Recommended first action
 
-**PR #9 codex review + merge.** The diff is trivial (2 lines, both
-identical SHA pins), but it's a supply-chain-relevant change (every
-CI run will execute the bumped commit) so the codex review is worth
-running. The custom prompt to paste into a fresh chat is in
-`docs/codex-prompts/pr-9-checkout-v6.md` (see below — or use the
-inline prompt the user paged into the next chat).
+**Phase 2 Sprint 2 in plan mode.** PR #9 and PR #10 are merged; PR #6/#7/#8
+shipped earlier today. The remaining critical-path work before Phase 4 polish
+is closing the Phase 2 DoD items that Sprint 1 deferred: per-peer sort, ratio
+category collapse/expand, per-ratio drilldown route, restatement tooltip,
+conditional formatting heat map, regulatory threshold amber flags, and the
+codex P2 from PR #1 (cross-quarter recompute when a Qn restatement lands).
 
-After PR #9 merges:
-1. Squash-merge with subject `chore(ci): bump actions/checkout v4 → v6.0.2 (Node 24 native)`.
-2. `gh workflow run daily-ingest.yml --ref main` to smoke the new
-   checkout pin live (~4 min); confirm green.
-3. Calendar wait for `2026-05-23` + `2026-05-24` scheduled cron firings.
-   Once both are green, the Phase 3 DoD bullet "daily ingest cron green
-   for 3 consecutive days" formally ticks.
+The new-chat prompt is at `~/.claude/plans/next-chat-prompt-amber-flag.md`.
+Open a fresh Claude Code session, paste the contents, and the session will
+enter plan mode and design the Sprint 2 sequencing (which features as which
+PRs, in what order, with what test plans) before writing any code.
+
+Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
+Excel export + banking design pass + README/Loom) is the only thing left.
 
 ### Then: Phase 4 kickoff
 
@@ -407,8 +451,9 @@ Phase 4 is 2.5 days of polish per `PLAN.md` v1.3:
    dashboard uses. Six tabs: Cover, Summary, Comp Sheets, Time Series
    by category, Restatement Log, Methodology. Specs in `PLAN.md` v1.3.
 3. **Banking design pass** — tabular-nums everywhere, conditional
-   formatting on all data tables, print CSS verified by printing
-   Summary + one Comp Sheet drilldown to PDF.
+   formatting parity with the dashboard, print CSS verified by printing
+   Summary + one Comp Sheet drilldown to PDF. The anchor tint `6%`
+   hardcoded inline-style P3 cleanup belongs here.
 4. **Polish** — README, ARCHITECTURE.md, screenshots, one Loom.
 
 Recommended sub-phase order: Phase 4.2 (Excel export) → Phase 4.3
