@@ -109,8 +109,8 @@ export function RatioMatrix({
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
   return (
-    <div className="overflow-auto border border-border">
-      <table className="border-collapse w-full">
+    <div className="flex-1 overflow-auto border border-border">
+      <table className="border-separate border-spacing-0 w-full">
         <thead className="bg-surface">
           {table.getHeaderGroups().map((hg) => (
             <tr key={hg.id}>
