@@ -68,6 +68,28 @@ def _extract_from_function(func: Callable[..., object]) -> frozenset[str]:
     return frozenset(fields)
 
 
+def _extract_avg_fields_from_function(func: Callable[..., object]) -> frozenset[str]:
+    """Walk one function's AST, returning ONLY field codes read via ``f.avg(...)``.
+
+    Same helper-recursion contract as ``_extract_from_function`` — needed
+    because ``compute_nis`` delegates to ``_cost_funds`` which is where the
+    ``f.avg("DEPI", ...)`` call lives.
+    """
+    try:
+        source = inspect.getsource(func)
+    except (OSError, TypeError):
+        return frozenset()
+    tree = ast.parse(textwrap.dedent(source))
+    if not tree.body or not isinstance(tree.body[0], ast.FunctionDef):
+        return frozenset()
+    func_def = tree.body[0]
+    module = inspect.getmodule(func)
+    fields: set[str] = set()
+    visited_helpers: set[str] = {func_def.name}
+    _visit_avg(func_def, module, fields, visited_helpers)
+    return frozenset(fields)
+
+
 def _visit(
     node: ast.AST,
     module: ModuleType | None,
@@ -129,6 +151,42 @@ def _handle_call(
             fields.update(_extract_from_function(helper))
 
 
+def _visit_avg(
+    node: ast.AST,
+    module: ModuleType | None,
+    fields: set[str],
+    visited_helpers: set[str],
+) -> None:
+    """AST visitor for ``f.avg("FIELD", ...)`` calls only.
+
+    Skips ``f["FIELD"]``, ``f.get(...)``, and ``f.current.get(...)`` — the
+    cross-quarter recompute trigger fires only on YTD-averaged consumers,
+    not direct same-quarter reads.
+    """
+    for child in ast.walk(node):
+        if not isinstance(child, ast.Call):
+            continue
+        func = child.func
+        if (
+            isinstance(func, ast.Attribute)
+            and isinstance(func.value, ast.Name)
+            and func.value.id == "f"
+            and func.attr == "avg"
+            and child.args
+            and isinstance(child.args[0], ast.Constant)
+            and isinstance(child.args[0].value, str)
+        ):
+            fields.add(child.args[0].value)
+            continue
+        # Recurse into local helper calls so e.g. ``compute_nis -> _cost_funds``
+        # surfaces the DEPI avg dep at the nis ratio's level.
+        if isinstance(func, ast.Name) and module is not None and func.id not in visited_helpers:
+            helper = getattr(module, func.id, None)
+            if inspect.isfunction(helper) and inspect.getmodule(helper) is module:
+                visited_helpers.add(func.id)
+                fields.update(_extract_avg_fields_from_function(helper))
+
+
 def extract_field_deps() -> dict[str, frozenset[str]]:
     """Return ``{ratio_id: frozenset(field_code)}`` for every registered handler.
 
@@ -167,6 +225,59 @@ def extract_field_deps() -> dict[str, frozenset[str]]:
     direct: dict[str, frozenset[str]] = {
         rid: _extract_from_function(h.func) | suppress_by_ratio.get(rid, frozenset())
         for rid, h in handlers.items()
+    }
+
+    resolved: dict[str, frozenset[str]] = {}
+
+    def resolve(rid: str, stack: tuple[str, ...]) -> frozenset[str]:
+        if rid in resolved:
+            return resolved[rid]
+        if rid in stack:
+            cycle = " -> ".join((*stack, rid))
+            msg = f"ratio dependency cycle: {cycle}"
+            raise RuntimeError(msg)
+        out: set[str] = set(direct.get(rid, frozenset()))
+        for parent in RATIO_DEPENDENCIES.get(rid, frozenset()):
+            out |= resolve(parent, (*stack, rid))
+        resolved[rid] = frozenset(out)
+        return resolved[rid]
+
+    for rid in direct:
+        resolve(rid, ())
+    return resolved
+
+
+def extract_avg_field_deps() -> dict[str, frozenset[str]]:
+    """Return ``{ratio_id: frozenset(field_code)}`` for fields read via ``f.avg(...)``.
+
+    Strict subset of :func:`extract_field_deps` — only ``f.avg(...)`` reads,
+    not direct ``f["FIELD"]`` or ``f.get(...)``. The restatement detector
+    uses this to decide which downstream quarters to mark stale when a
+    fact diff lands:
+
+      * ``nco_ratio`` averages ``LNLSGR`` over ``quarter_number + 1`` periods,
+        so a Q2 LNLSGR restatement also invalidates Q3 and Q4 ``nco_ratio``.
+      * ``cost_funds`` averages ``DEPI`` likewise.
+      * ``nis`` reads ``cost_funds`` via ``RATIO_DEPENDENCIES`` — the transitive
+        closure surfaces ``DEPI`` on ``nis``'s avg-dep set so a DEPI
+        restatement marks the forward ``nis`` rows stale too.
+
+    Suppression edges (``CBLRIND`` etc.) are NOT unioned in here — the
+    suppression check runs on the *current* quarter's facts only, not on
+    averaged inputs, so a CBLRIND restatement does not propagate forward
+    even for ratios whose ``cet1`` / ``tier1_rbc`` / ``total_rbc`` output
+    depends on the suppression flag.
+
+    Raises ``RuntimeError`` if the registry is empty or ``RATIO_DEPENDENCIES``
+    has a cycle (matches :func:`extract_field_deps`'s contract).
+    """
+    handlers = registered_handlers()
+    if not handlers:
+        msg = "registered_handlers() is empty — import peerbench.ratio_engine first"
+        raise RuntimeError(msg)
+
+    direct: dict[str, frozenset[str]] = {
+        rid: _extract_avg_fields_from_function(h.func) for rid, h in handlers.items()
     }
 
     resolved: dict[str, frozenset[str]] = {}
