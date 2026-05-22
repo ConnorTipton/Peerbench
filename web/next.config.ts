@@ -15,4 +15,7 @@ export default withSentryConfig(nextConfig, {
   sourcemaps: {
     disable: !process.env.SENTRY_AUTH_TOKEN,
   },
+  // Proxy Sentry events through a first-party Next.js route so they
+  // bypass ad blockers / corporate trackers that block *.ingest.sentry.io.
+  tunnelRoute: "/monitoring",
 });
