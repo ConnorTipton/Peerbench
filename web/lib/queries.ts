@@ -128,6 +128,7 @@ export async function getMatrixData(): Promise<MatrixData> {
     const affected = RATIOS_BY_FIELD.get(row.field_code);
     if (!affected) continue;
     const detail: RestatedDetail = {
+      field_code: row.field_code,
       old_value: row.old_value === null ? null : Number(row.old_value),
       new_value: row.new_value === null ? null : Number(row.new_value),
       detected_at: row.detected_at,

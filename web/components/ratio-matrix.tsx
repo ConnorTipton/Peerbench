@@ -222,12 +222,13 @@ function DataCell({
       {restated && (
         <Tooltip>
           <TooltipTrigger asChild>
-            <sup
-              className="ml-0.5 cursor-help text-text-secondary"
-              aria-label="Underlying input restated since first publication"
+            <button
+              type="button"
+              className="ml-0.5 cursor-help align-super text-[10px] leading-none text-text-secondary rounded-sm focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+              aria-label={`Underlying input ${restated.field_code} restated since first publication`}
             >
               r
-            </sup>
+            </button>
           </TooltipTrigger>
           <TooltipContent side="top" align="center">
             <RestatementTooltipBody detail={restated} />
@@ -245,15 +246,23 @@ function DataCell({
   );
 }
 
+// Fields where old_value/new_value are NOT dollar amounts. Today only
+// CBLRIND (Community Bank Leverage Ratio election flag, 0/1). Add to the
+// set when new non-dollar fields enter the handler dependency graph.
+const NON_DOLLAR_FIELDS = new Set<string>(["CBLRIND"]);
+
 function RestatementTooltipBody({ detail }: { detail: RestatedDetail }) {
+  const showThousandsLabel = !NON_DOLLAR_FIELDS.has(detail.field_code);
   return (
     <div className="space-y-0.5">
       <div>
-        Was <span className="font-medium">{formatFactValue(detail.old_value)}</span>, now{" "}
+        <span className="font-medium">{detail.field_code}</span>: was{" "}
+        <span className="font-medium">{formatFactValue(detail.old_value)}</span>, now{" "}
         <span className="font-medium">{formatFactValue(detail.new_value)}</span>
       </div>
       <div className="text-text-secondary">
-        Restated {formatReportDate(detail.detected_at)} · values in thousands
+        Restated {formatReportDate(detail.detected_at)}
+        {showThousandsLabel ? " · values in thousands" : ""}
       </div>
     </div>
   );

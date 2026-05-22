@@ -18,11 +18,14 @@ export type RatioGroup = {
 
 // Per-cell restatement detail attached to cells whose underlying field was
 // restated this quarter. old_value / new_value are raw field-level values
-// from quality_log (thousands of dollars by FFIEC convention), so they
-// render via formatFactValue(), not formatRatio() — the cell shows the
-// computed ratio percentage, but the tooltip shows the underlying input
-// that moved.
+// from quality_log (thousands of dollars by FFIEC convention for dollar
+// fields; raw integers for flag fields like CBLRIND), so they render via
+// formatFactValue(), not formatRatio() — the cell shows the computed ratio
+// percentage, but the tooltip shows the underlying input that moved.
+// `field_code` is the FDIC/CDR identifier (e.g. "LNLSGR") so the tooltip
+// can name the field and apply the correct unit suffix.
 export type RestatedDetail = {
+  field_code: string;
   old_value: number | null;
   new_value: number | null;
   detected_at: string;
