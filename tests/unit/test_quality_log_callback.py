@@ -140,3 +140,145 @@ class TestQualityLogCallback:
         # Sanity import guard so the test file flags accidentally
         # removing the Ratio model reference.
         assert Ratio.__tablename__ == "ratios"
+
+
+class TestQualityLogCallbackCrossQuarter:
+    """Forward-quarter flip for ``f.avg(...)`` consumers (codex P2 from PR #1).
+
+    Two handlers do YTD averaging: ``nco_ratio`` (LNLSGR) and ``cost_funds``
+    (DEPI). Each reads ``periods=quarter_number+1`` periods, so a restatement
+    at (Y, Q) makes downstream quarters that average back through (Y, Q) stale
+    too — the same-quarter flip alone leaves those rows with ``data_quality
+    = 'ok'`` until the next compute pass overwrites them, which is wrong:
+    between detection and recompute the dashboard renders a stale ``ok``
+    value with no indicator.
+
+    Forward-affected quarters under the YTD pattern:
+
+      * (Y, Q1..Q3) restatement → (Y, Q+1..Q4) — rest of the same FDIC year.
+      * (Y, Q4) restatement → (Y+1, Q1..Q4) — Q4 is the "prior year-end"
+        balance every Y+1 quarter averages in.
+
+    Non-``f.avg`` fields (NIM, NCLNLS, etc.) keep the original same-quarter
+    semantics — no forward flip.
+    """
+
+    def _compiled_updates(self, session: MagicMock) -> list[str]:
+        return [
+            str(call.args[0].compile(compile_kwargs={"literal_binds": True})).replace('"', "'")
+            for call in session.execute.call_args_list
+        ]
+
+    def test_lnlsgr_restatement_in_q2_flips_q3_and_q4_nco_ratio(self) -> None:
+        # LNLSGR at 2025-Q2 — nco_ratio uses f.avg("LNLSGR", periods=qnum+1):
+        #   2025-Q3 (periods=4) averages Q3, Q2, Q1, prev-Q4 — includes Q2 ✓
+        #   2025-Q4 (periods=5) averages Q4, Q3, Q2, Q1, prev-Q4 — includes Q2 ✓
+        #   2026-Q1 (periods=2) averages Q1 + prev-Q4(=2025-Q4) — Q2 not included ✗
+        session = _make_session()
+        cb = make_quality_log_callback(session)
+
+        cb(4063, "2025-Q2", "LNLSGR", Decimal("1000"), Decimal("1010"))
+
+        compiled = self._compiled_updates(session)
+        # Two UPDATEs: one for current quarter (nco_ratio + acl_loans +
+        # acl_npl + npl_ratio all read LNLSGR), one for forward quarters
+        # (nco_ratio is the only f.avg consumer of LNLSGR).
+        assert len(compiled) == 2, f"expected current + forward UPDATEs, got {len(compiled)}"
+        current_sql, forward_sql = compiled
+        assert "ratios.quarter_id = '2025-Q2'" in current_sql
+        assert "'nco_ratio'" in forward_sql
+        assert "ratios.cert = 4063" in forward_sql
+        assert "data_quality='partial'" in forward_sql
+        # Forward set: 2025-Q3 + 2025-Q4 — not 2026-Q1 (out of window) or
+        # 2025-Q1/Q2 (current-or-prior, not forward).
+        for forward_qid in ("2025-Q3", "2025-Q4"):
+            assert f"'{forward_qid}'" in forward_sql, (
+                f"{forward_qid} should be in the forward IN-list: {forward_sql}"
+            )
+        for not_forward in ("2026-Q1", "2025-Q1", "2025-Q2"):
+            assert f"'{not_forward}'" not in forward_sql, (
+                f"{not_forward} is not in the YTD-forward window: {forward_sql}"
+            )
+        # Non-avg consumers of LNLSGR (acl_loans, npl_ratio, loans_assets)
+        # must NOT appear in the forward IN-list — they don't average
+        # across quarters, so a Q2 LNLSGR restatement is not load-bearing
+        # on Q3 for those ratios.
+        for direct_only in ("acl_loans", "npl_ratio", "loans_assets"):
+            assert f"'{direct_only}'" not in forward_sql, (
+                f"{direct_only} reads LNLSGR directly (not via f.avg) — "
+                f"must NOT be in the forward IN-list: {forward_sql}"
+            )
+
+    def test_lnlsgr_restatement_in_q4_flips_next_year_q1_through_q4(self) -> None:
+        # Year-end balance: every Y+1 quarter averages back to prev-Q4.
+        # 2024-Q4 LNLSGR → 2025-Q1..Q4 nco_ratio all stale. 2026-Q1 reads
+        # prev-Q4(=2025-Q4), not 2024-Q4 — out of window.
+        session = _make_session()
+        cb = make_quality_log_callback(session)
+
+        cb(4063, "2024-Q4", "LNLSGR", Decimal("1000"), Decimal("1010"))
+
+        compiled = self._compiled_updates(session)
+        assert len(compiled) == 2
+        forward_sql = compiled[1]
+        for forward_qid in ("2025-Q1", "2025-Q2", "2025-Q3", "2025-Q4"):
+            assert f"'{forward_qid}'" in forward_sql, (
+                f"{forward_qid} should be in the next-year forward IN-list: {forward_sql}"
+            )
+        for not_forward in ("2024-Q1", "2024-Q2", "2024-Q3", "2024-Q4", "2026-Q1"):
+            assert f"'{not_forward}'" not in forward_sql, (
+                f"{not_forward} must not be in next-year forward IN-list: {forward_sql}"
+            )
+
+    def test_depi_restatement_flips_forward_cost_funds_and_nis(self) -> None:
+        # DEPI is averaged by cost_funds; nis depends on cost_funds via
+        # RATIO_DEPENDENCIES. So the forward flip must include BOTH —
+        # otherwise nis at Qn+1 renders stale `ok` after the cost_funds
+        # value underneath it has been invalidated.
+        session = _make_session()
+        cb = make_quality_log_callback(session)
+
+        cb(4063, "2025-Q1", "DEPI", Decimal("500"), Decimal("520"))
+
+        compiled = self._compiled_updates(session)
+        assert len(compiled) == 2
+        forward_sql = compiled[1]
+        for rid in ("cost_funds", "nis"):
+            assert f"'{rid}'" in forward_sql, (
+                f"{rid} averages or transitively-averages DEPI — must be in "
+                f"the forward IN-list: {forward_sql}"
+            )
+        # yield_ea reads INTINC/ERNAST5 directly with no f.avg — must not
+        # appear in the forward flip even though nis depends on yield_ea.
+        assert "'yield_ea'" not in forward_sql, (
+            f"yield_ea does not average DEPI — must not be flipped: {forward_sql}"
+        )
+        for forward_qid in ("2025-Q2", "2025-Q3", "2025-Q4"):
+            assert f"'{forward_qid}'" in forward_sql
+
+    def test_non_avg_field_restatement_does_not_emit_forward_update(self) -> None:
+        # NIM is read directly by nim/eff_ratio/ppnr_assets/nonint_inc_rev —
+        # no f.avg. A NIM restatement at Q2 must not produce a forward
+        # UPDATE — that would over-mark ratios whose Q3 value is genuinely
+        # current.
+        session = _make_session()
+        cb = make_quality_log_callback(session)
+
+        cb(4063, "2025-Q2", "NIM", Decimal("3.50"), Decimal("3.60"))
+
+        # Exactly one UPDATE — the existing same-quarter flip.
+        assert session.execute.call_count == 1, (
+            f"expected only the same-quarter flip; got "
+            f"{session.execute.call_count} UPDATE(s)"
+        )
+
+    def test_unconsumed_field_emits_no_forward_update(self) -> None:
+        # A field with no avg consumer (and no direct consumer) emits no
+        # forward UPDATE — same defensive shape as the unconsumed-field
+        # case in the same-quarter tests.
+        session = _make_session()
+        cb = make_quality_log_callback(session)
+
+        cb(4063, "2025-Q2", "__NEVER_READ__", Decimal("1"), Decimal("2"))
+
+        assert session.execute.call_count == 0

@@ -10,6 +10,13 @@ Enforces invariants the rest of the pipeline assumes:
      without a version bump is caught by the AST-hash snapshot.
   6. No `float(...)` cast appears in value-path modules — Decimal end-to-end
      is the only way to hit the <2 bps DoD.
+  7. Every ``f.avg(...)`` call uses ``periods=f.quarter_number + 1`` — the
+     restatement detector's YTD-forward-quarters helper bakes in that
+     pattern, so a divergent ``periods`` expression would silently mis-mark
+     downstream quarters.
+  8. ``extract_avg_field_deps`` returns the expected ratio→avg-field mapping;
+     keeps the cross-quarter recompute trigger surface in lock-step with
+     handler bodies.
 
 To intentionally change a handler body: bump @ratio(version=...) AND
 regenerate the snapshot (delete it; the test recreates and fails once).
@@ -17,8 +24,11 @@ regenerate the snapshot (delete it; the test recreates and fails once).
 
 from __future__ import annotations
 
+import ast
+import inspect
 import json
 import re
+import textwrap
 from pathlib import Path
 from typing import Any
 
@@ -26,7 +36,7 @@ import pytest
 
 from peerbench.ratio_defs_io import load_ratio_defs
 from peerbench.ratio_engine import registered_handlers
-from peerbench.ratio_engine.field_deps import extract_field_deps
+from peerbench.ratio_engine.field_deps import extract_avg_field_deps, extract_field_deps
 
 KNOWN_SUPPRESS_KEYS: frozenset[str] = frozenset({"cblr"})
 
@@ -186,6 +196,118 @@ class TestFieldDepsSnapshot:
                 f"{rid} does not opt into CBLR suppression but picked up CBLRIND: "
                 f"{sorted(deps[rid])}"
             )
+
+
+class TestAvgPattern:
+    """Every ``f.avg(...)`` call must use ``periods=f.quarter_number + 1``.
+
+    The restatement detector's :func:`_ytd_forward_quarters` helper assumes
+    YTD-style averaging: forward window is the rest of the same FDIC year,
+    or all four next-year quarters when the restatement lands on Q4. A
+    handler that uses a constant or a different expression — say
+    ``periods=4`` or ``periods=f.quarter_number * 2`` — would have a
+    different look-back window and the forward flip would silently be
+    wrong (over- or under-marking).
+
+    If you have a legitimate reason to use a different averaging window,
+    extend ``_ytd_forward_quarters`` to dispatch on the per-handler pattern
+    AND extend this test to allow-list the new pattern. Don't just bypass.
+    """
+
+    def _iter_avg_calls(self) -> list[tuple[str, ast.Call]]:
+        from peerbench.ratio_engine.handlers import (
+            asset_quality,
+            balance_sheet,
+            capital,
+            concentration,
+            liquidity,
+            profitability,
+            yields,
+        )
+
+        modules = (
+            asset_quality,
+            balance_sheet,
+            capital,
+            concentration,
+            liquidity,
+            profitability,
+            yields,
+        )
+        calls: list[tuple[str, ast.Call]] = []
+        for mod in modules:
+            source = textwrap.dedent(inspect.getsource(mod))
+            tree = ast.parse(source)
+            for node in ast.walk(tree):
+                if (
+                    isinstance(node, ast.Call)
+                    and isinstance(node.func, ast.Attribute)
+                    and node.func.attr == "avg"
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "f"
+                ):
+                    calls.append((mod.__name__, node))
+        return calls
+
+    def test_every_f_avg_uses_quarter_number_plus_one(self) -> None:
+        offenders: list[str] = []
+        for mod_name, call in self._iter_avg_calls():
+            periods_kw = next((kw for kw in call.keywords if kw.arg == "periods"), None)
+            if periods_kw is None:
+                offenders.append(f"{mod_name}: f.avg(...) without periods= kwarg")
+                continue
+            expr = periods_kw.value
+            # Expected: BinOp( Attribute(value=Name('f'), attr='quarter_number'), Add(), Constant(1) )
+            ok = (
+                isinstance(expr, ast.BinOp)
+                and isinstance(expr.op, ast.Add)
+                and isinstance(expr.left, ast.Attribute)
+                and expr.left.attr == "quarter_number"
+                and isinstance(expr.left.value, ast.Name)
+                and expr.left.value.id == "f"
+                and isinstance(expr.right, ast.Constant)
+                and expr.right.value == 1
+            )
+            if not ok:
+                rendered = ast.unparse(expr)
+                offenders.append(f"{mod_name}: f.avg(..., periods={rendered}) — expected f.quarter_number + 1")
+        assert not offenders, (
+            "f.avg(...) periods expression must be `f.quarter_number + 1` "
+            "(the only pattern the YTD-forward-quarters helper in the "
+            "restatement detector supports). To use a different look-back, "
+            "extend _ytd_forward_quarters AND this test together.\n"
+            + "\n".join(offenders)
+        )
+
+
+class TestAvgFieldDepsSnapshot:
+    """Pin the avg-consumer surface so handler edits that change it are
+    visible at PR review.
+
+    The set is intentionally small: each new (ratio, field) pair here means
+    a new forward-quarter flip the restatement detector will issue on every
+    matching diff. Surprises here ripple into per-quarter recompute load
+    and into the ``data_quality='partial'`` window the dashboard surfaces.
+    """
+
+    def test_avg_field_deps_matches_expected(self) -> None:
+        deps = extract_avg_field_deps()
+        # Ratios that have any avg-consumer fields. Everything else must
+        # have an empty frozenset (no f.avg reads, directly or transitively).
+        non_empty = {rid: sorted(fields) for rid, fields in deps.items() if fields}
+        expected = {
+            "nco_ratio": ["LNLSGR"],
+            "cost_funds": ["DEPI"],
+            # nis → cost_funds via RATIO_DEPENDENCIES; transitive closure
+            # surfaces DEPI on nis so a DEPI restatement also marks the
+            # forward nis rows stale.
+            "nis": ["DEPI"],
+        }
+        assert non_empty == expected, (
+            f"avg-consumer surface drifted; got {non_empty}, expected {expected}. "
+            "If this is intentional, update the expected map AND audit the "
+            "restatement detector's forward-flip behavior for the new edges."
+        )
 
 
 FLOAT_CAST = re.compile(r"\bfloat\(")
