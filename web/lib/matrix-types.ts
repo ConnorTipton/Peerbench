@@ -16,6 +16,18 @@ export type RatioGroup = {
   defs: RatioDef[];
 };
 
+// Per-cell restatement detail attached to cells whose underlying field was
+// restated this quarter. old_value / new_value are raw field-level values
+// from quality_log (thousands of dollars by FFIEC convention), so they
+// render via formatFactValue(), not formatRatio() — the cell shows the
+// computed ratio percentage, but the tooltip shows the underlying input
+// that moved.
+export type RestatedDetail = {
+  old_value: number | null;
+  new_value: number | null;
+  detected_at: string;
+};
+
 export function cellKey(cert: number, ratioId: string): string {
   return `${cert}|${ratioId}`;
 }

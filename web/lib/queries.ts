@@ -6,6 +6,7 @@ import {
   restatementKey,
   type MatrixCell,
   type RatioGroup,
+  type RestatedDetail,
 } from "@/lib/matrix-types";
 import { CATEGORY_ORDER, RATIO_ORDER } from "@/lib/ratio-order";
 import ratioFieldDeps from "@/lib/ratio-field-deps.generated.json";
@@ -41,12 +42,19 @@ export type MatrixData = {
   /** Keyed `${cert}|${ratio_id}` */
   cells: Map<string, MatrixCell>;
   /**
-   * Set of `${cert}|${ratio_id}` for cells whose underlying inputs were
-   * restated this quarter. Resolved server-side from quality_log.field_code
-   * via the handler-derived dependency snapshot (RATIOS_BY_FIELD above), so
-   * the dashboard never sees raw field codes — only the ratios they touched.
+   * Map of `${cert}|${ratio_id}` → restatement detail for cells whose
+   * underlying inputs were restated this quarter. Resolved server-side
+   * from `quality_log` via the handler-derived dependency snapshot
+   * (RATIOS_BY_FIELD above), so the dashboard never sees raw field codes —
+   * only the ratios they touched plus the old/new field values and
+   * detection timestamp.
+   *
+   * Caveat: if two distinct restated fields both fan out to the same ratio
+   * for the same cert+quarter, the second restatement's detail overwrites
+   * the first. This is acceptable for Sprint 2 — the five known
+   * restatements in the current production data are 1:1.
    */
-  restatedKeys: Set<string>;
+  restatedDetails: Map<string, RestatedDetail>;
 };
 
 /**
@@ -102,10 +110,16 @@ export async function getMatrixData(): Promise<MatrixData> {
     });
   }
 
-  const restatedKeys = new Set<string>();
+  const restatedDetails = new Map<string, RestatedDetail>();
   for (const row of restatementsRes.data as Pick<
     QualityLogRow,
-    "cert" | "quarter_id" | "field_code" | "event_type"
+    | "cert"
+    | "quarter_id"
+    | "field_code"
+    | "event_type"
+    | "old_value"
+    | "new_value"
+    | "detected_at"
   >[]) {
     if (row.cert === null || row.field_code === null) continue;
     // A field with no registered consumer (e.g. an ingested-but-unused FFIEC
@@ -113,12 +127,17 @@ export async function getMatrixData(): Promise<MatrixData> {
     // there is no ratio cell to attach the `r` to.
     const affected = RATIOS_BY_FIELD.get(row.field_code);
     if (!affected) continue;
+    const detail: RestatedDetail = {
+      old_value: row.old_value === null ? null : Number(row.old_value),
+      new_value: row.new_value === null ? null : Number(row.new_value),
+      detected_at: row.detected_at,
+    };
     for (const ratioId of affected) {
-      restatedKeys.add(restatementKey(row.cert, ratioId));
+      restatedDetails.set(restatementKey(row.cert, ratioId), detail);
     }
   }
 
-  return { quarter, institutions, ratioGroups, cells, restatedKeys };
+  return { quarter, institutions, ratioGroups, cells, restatedDetails };
 }
 
 function sortInstitutions(rows: Institution[]): Institution[] {
