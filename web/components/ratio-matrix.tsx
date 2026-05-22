@@ -7,7 +7,8 @@ import {
   type ColumnDef,
   type RowData,
 } from "@tanstack/react-table";
-import { useMemo } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useMemo, useState, useTransition } from "react";
 
 import { CATEGORY_LABELS } from "@/lib/ratio-order";
 import {
@@ -18,6 +19,13 @@ import {
   type RestatedDetail,
 } from "@/lib/matrix-types";
 import { EM_DASH, formatFactValue, formatRatio, formatReportDate } from "@/lib/format";
+import {
+  nextSortState,
+  serializeSortParam,
+  sortWithinSections,
+  type SortDir,
+  type SortState,
+} from "@/lib/sort";
 import {
   Tooltip,
   TooltipContent,
@@ -45,6 +53,7 @@ type Props = {
   cells: Map<string, MatrixCell>;
   restatedDetails: Map<string, RestatedDetail>;
   anchorCert: number;
+  initialSort: SortState;
 };
 
 const DATA_QUALITY_LABEL: Record<MatrixCell["data_quality"], string> = {
@@ -60,7 +69,32 @@ export function RatioMatrix({
   cells,
   restatedDetails,
   anchorCert,
+  initialSort,
 }: Props) {
+  const [sort, setSort] = useState<SortState>(initialSort);
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [, startTransition] = useTransition();
+
+  const applySort = useCallback(
+    (cert: number) => {
+      const next = nextSortState(sort, cert);
+      setSort(next);
+      const params = new URLSearchParams(searchParams.toString());
+      const serialized = serializeSortParam(next);
+      if (serialized) {
+        params.set("sort", serialized);
+      } else {
+        params.delete("sort");
+      }
+      const qs = params.toString();
+      startTransition(() => {
+        router.replace(qs ? `?${qs}` : "?", { scroll: false });
+      });
+    },
+    [sort, router, searchParams],
+  );
+
   const rows: Row[] = useMemo(() => {
     const out: Row[] = [];
     for (const group of ratioGroups) {
@@ -71,6 +105,16 @@ export function RatioMatrix({
     }
     return out;
   }, [ratioGroups]);
+
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows;
+    return sortWithinSections(
+      rows,
+      (r) => r.kind === "section",
+      (r) => (r.kind === "data" ? cells.get(cellKey(sort.cert, r.def.ratio_id))?.value ?? null : null),
+      sort.dir,
+    );
+  }, [rows, sort, cells]);
 
   const columns: ColumnDef<Row>[] = useMemo(() => {
     const ratioColumn: ColumnDef<Row> = {
@@ -96,10 +140,12 @@ export function RatioMatrix({
       id: `inst-${inst.cert}`,
       meta: { cert: inst.cert },
       header: () => (
-        <span className="block text-right text-table-data font-semibold">
-          <span className="block text-text">{inst.name}</span>
-          <span className="block text-text-tertiary">Cert {inst.cert}</span>
-        </span>
+        <SortHeader
+          name={inst.name}
+          cert={inst.cert}
+          dir={sort?.cert === inst.cert ? sort.dir : null}
+          onClick={() => applySort(inst.cert)}
+        />
       ),
       cell: ({ row }) => {
         const r = row.original;
@@ -110,9 +156,13 @@ export function RatioMatrix({
       },
     }));
     return [ratioColumn, ...peerColumns];
-  }, [institutions, cells, restatedDetails]);
+  }, [institutions, cells, restatedDetails, sort, applySort]);
 
-  const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
+  const table = useReactTable({
+    data: sortedRows,
+    columns,
+    getCoreRowModel: getCoreRowModel(),
+  });
 
   return (
     <div className="flex-1 min-h-0 overflow-auto border border-border">
@@ -122,12 +172,21 @@ export function RatioMatrix({
             <tr key={hg.id}>
               {hg.headers.map((h) => {
                 const isRatioCol = h.column.id === "ratio";
-                const isAnchorCol =
-                  !isRatioCol && h.column.columnDef.meta?.cert === anchorCert;
+                const cert = h.column.columnDef.meta?.cert;
+                const isAnchorCol = !isRatioCol && cert === anchorCert;
+                const ariaSort: "ascending" | "descending" | "none" | undefined =
+                  isRatioCol || cert === undefined
+                    ? undefined
+                    : sort?.cert === cert
+                      ? sort.dir === "asc"
+                        ? "ascending"
+                        : "descending"
+                      : "none";
                 return (
                   <th
                     key={h.id}
                     scope="col"
+                    aria-sort={ariaSort}
                     className={[
                       "sticky top-0 p-2 border-b border-border",
                       isRatioCol
@@ -265,5 +324,38 @@ function RestatementTooltipBody({ detail }: { detail: RestatedDetail }) {
         {showThousandsLabel ? " · values in thousands" : ""}
       </div>
     </div>
+  );
+}
+
+function SortHeader({
+  name,
+  cert,
+  dir,
+  onClick,
+}: {
+  name: string;
+  cert: number;
+  dir: SortDir | null;
+  onClick: () => void;
+}) {
+  const indicator = dir === "asc" ? "↑" : dir === "desc" ? "↓" : "↕";
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="block w-full cursor-pointer rounded-sm text-right text-table-data font-semibold transition-colors duration-200 ease-in-out focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+      aria-label={`Sort by ${name}`}
+    >
+      <span className="flex items-baseline justify-end gap-1 text-text">
+        <span>{name}</span>
+        <span
+          aria-hidden="true"
+          className={dir ? "text-accent" : "text-text-tertiary"}
+        >
+          {indicator}
+        </span>
+      </span>
+      <span className="block text-text-tertiary">Cert {cert}</span>
+    </button>
   );
 }

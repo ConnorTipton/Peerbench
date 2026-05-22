@@ -2,17 +2,18 @@ import { AnchorSelect } from "@/components/anchor-select";
 import { RatioMatrix } from "@/components/ratio-matrix";
 import { formatReportDate } from "@/lib/format";
 import { getMatrixData } from "@/lib/queries";
+import { parseSortParam } from "@/lib/sort";
 
 const DEFAULT_ANCHOR_CERT = 4063; // MidFirst Bank
 
-type SearchParams = { anchor?: string };
+type SearchParams = { anchor?: string; sort?: string };
 
 export default async function HomePage({
   searchParams,
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { anchor } = await searchParams;
+  const { anchor, sort } = await searchParams;
   const data = await getMatrixData();
 
   const requested = anchor ? Number.parseInt(anchor, 10) : NaN;
@@ -20,6 +21,11 @@ export default async function HomePage({
     Number.isFinite(requested) && data.institutions.some((i) => i.cert === requested)
       ? requested
       : DEFAULT_ANCHOR_CERT;
+
+  const initialSort = parseSortParam(
+    sort,
+    data.institutions.map((i) => i.cert),
+  );
 
   return (
     <main className="flex h-dvh flex-col px-6 py-6">
@@ -38,6 +44,7 @@ export default async function HomePage({
         cells={data.cells}
         restatedDetails={data.restatedDetails}
         anchorCert={anchorCert}
+        initialSort={initialSort}
       />
     </main>
   );
