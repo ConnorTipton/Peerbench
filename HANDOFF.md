@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 night, PR #11 merged — cross-quarter recompute closed)
+# Peerbench — handoff (2026-05-22 night, Sprint 2 plan locked + PR-A landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,7 +6,22 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
-- **PR #11 merged at `a0cfbdd`** (Phase 2 Sprint 2 first item).
+- **Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.**
+  Five atomic PRs in order A → B → C → D → E. Item (g) cross-quarter
+  recompute is excluded (already merged via PR #11). Three pre-plan
+  design decisions confirmed: shadcn/Radix Tooltip primitive, defer the
+  `cre_rbc` 36-month growth gate with a footnote (Phase 4 follow-up to
+  ship `cre_rbc_growth_36mo` as a pipeline ratio), 5-atomic-PR chunking.
+- **PR #12 (Sprint 2 PR-A) merged at `80d2b58`.** Restatement tooltip
+  per `docs/design.md` §Restatement-indicator. Hovering the `r` on any
+  restated cell now reveals `LNLSGR: was 1,234,567, now 1,234,890`
+  with the detection date and a conditional "values in thousands" suffix
+  (omitted for non-dollar fields like `CBLRIND`). Two codex P2s caught
+  on first review (a11y + non-dollar field labelling) and fixed on the
+  same branch via commit `1edcaab`; round 2 codex GATE PASS, 0 findings.
+  Live on prod at https://peerbench-web.vercel.app/ — HTTP 200, 573 ms
+  TTFB.
+- **PR #11 merged at `a0cfbdd`** (the predecessor Sprint 2 item).
   Restatement detector now issues a forward-quarter `UPDATE ratios SET
   data_quality='partial'` for rows whose `f.avg(...)` window reaches back
   through a restated quarter — closes the codex P2 from PR #1. Direct
@@ -52,13 +67,13 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 85 passing** (+7 from PR #11's
-  `TestQualityLogCallbackCrossQuarter` + field-deps walker tests). No
-  value-path code touched (handler bodies unchanged).
-- **Working tree:** on `main` @ `a0cfbdd`, clean. Feature branch
-  `phase-2-cross-quarter-recompute` deleted on merge.
+- **Test count: 85 passing** (unchanged this session — PR-A was JS/TS
+  only, no Python value-path code touched).
+- **Working tree:** on `main` @ `80d2b58`, clean. Feature branches
+  `phase-2-cross-quarter-recompute` and `phase-2-restatement-tooltip`
+  both deleted on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12)
 
 ### PR #6 — Phase 3 hosting (squash-merge `75e5205`)
 
@@ -226,6 +241,77 @@ diff. 85/85 tests pass. Vercel rebuild succeeded (no `web/` changes, no-op
 rebuild); prod URL `https://peerbench-web.vercel.app/` HTTP 200, 1.6s
 warm load. Deploy report at `.gstack/deploy-reports/2026-05-22-pr11-deploy.md`.
 
+### PR #12 — Sprint 2 PR-A: restatement tooltip (squash-merge `80d2b58`)
+
+Branch `phase-2-restatement-tooltip`. Two commits squashed on merge:
+
+1. **`581750b` — `feat(web):` restatement tooltip on `r` superscript.**
+   Closes the `docs/design.md` §Restatement-indicator hover surface that
+   was specced but never implemented (previous behavior was a static
+   `title=` attribute). Hovering the `r` on any restated cell now reveals
+   `"Was X, now Y"` with the detection date.
+2. **`1edcaab` — `fix(web):` codex P2 — a11y + non-dollar field labelling.**
+   In-PR fixup for the two P2s codex flagged on commit `581750b`.
+
+**Diff (9 files, +622/-26):**
+
+- `web/components/ui/tooltip.tsx` (new) — thin styled wrapper around
+  `@radix-ui/react-tooltip`. Hand-written, not `npx shadcn add tooltip`,
+  because `shadcn init` would overwrite the existing `@theme` palette in
+  `app/globals.css`. Functionally equivalent; design tokens remain the
+  source of truth.
+- `web/app/layout.tsx` — mounts `<TooltipProvider delayDuration={150}>`
+  once at the root so all tooltips share state.
+- `web/lib/queries.ts` — `restatedKeys: Set<string>` →
+  `restatedDetails: Map<string, RestatedDetail>`. Same single round-trip
+  to `quality_log` (`old_value` / `new_value` / `detected_at` / `field_code`
+  were already SELECTed); now serialized into the Map instead of dropped.
+  Documented the multi-field-per-ratio overwrite caveat — benign for the
+  5 known restatements in current production data.
+- `web/lib/matrix-types.ts` — exports `RestatedDetail` type with
+  `field_code`, `old_value`, `new_value`, `detected_at`.
+- `web/lib/format.ts` — new `formatFactValue()` helper. The cell renders
+  the ratio percentage via `formatRatio()`; the tooltip renders the
+  underlying raw FFIEC field amounts via `formatFactValue()` (thousands-
+  separated integers, parentheses-negatives). The plan said to reuse
+  `formatRatio()` but `quality_log.old_value/new_value` are raw field-
+  level dollar amounts, not ratios.
+- `web/components/ratio-matrix.tsx` — threads `restatedDetails` through
+  the cell render path; wraps the `r` indicator in `<Tooltip>` and renders
+  a `RestatementTooltipBody` showing `LNLSGR: was X, now Y` (field code
+  leads). Trigger is `<button type="button">` with `align-super text-[10px]`
+  to keep the superscript appearance while remaining keyboard-focusable;
+  `focus-visible:outline-1 focus-visible:outline-accent` per
+  `docs/design.md` "single accent color for focus rings". A
+  `NON_DOLLAR_FIELDS = new Set(["CBLRIND"])` allowlist suppresses the
+  "values in thousands" suffix for flag fields.
+- `web/app/page.tsx` — passes `data.restatedDetails` instead of
+  `data.restatedKeys`.
+- `web/package.json` + `web/package-lock.json` — adds
+  `@radix-ui/react-tooltip` (~13 KB gzipped).
+
+**Codex round-trip:**
+
+- Round 1 (`581750b`): GATE PASS (0 P1, 2 P2).
+  - **[P2-A]** `<sup>` trigger isn't keyboard-focusable → Radix never opens
+    on `Tab` focus. Tooltip was pointer-only.
+  - **[P2-B]** Hard-coded "values in thousands" suffix mislabelled
+    `CBLRIND` (a 0/1 suppression flag already in the field-dep graph).
+- Round 2 (`1edcaab`): GATE PASS, **0 findings**. Codex verbatim: *"The
+  prior accessibility and non-dollar labeling issues appear addressed:
+  the restatement marker is focusable via a button/tooltip trigger, and
+  CBLRIND no longer receives the thousands label. I found no blocking
+  correctness issues in the branch diff."*
+
+**Verification on merge:** 85/85 tests pass. `npm run lint` 0 errors,
+1 warning (pre-existing TanStack memo warning at `ratio-matrix.tsx:115`).
+`npm run build` clean Turbopack compile + Sentry source-map upload.
+Vercel rebuild succeeded; prod URL HTTP 200, **573 ms TTFB**
+(well under the <1 s DoD target).
+
+**Plan-file review report:** logged via `gstack-review-log`; appended as
+`## GSTACK REVIEW REPORT` to `~/.claude/plans/zippy-pondering-volcano.md`.
+
 ## Open items / state of play
 
 ### Phase 1 — fully closed
@@ -250,18 +336,36 @@ warm load. Deploy report at `.gstack/deploy-reports/2026-05-22-pr11-deploy.md`.
   function region matching Supabase region). Sentry's server-transaction
   panel confirms `GET /` avg 274 ms / P95 386 ms over the first 30 hits.
 
-### Phase 2 — Sprint 2 onward (deferred)
+### Phase 2 — Sprint 2 (in flight)
 
-- Per-peer sort, ratio category collapse/expand, drill-down detail view
-  per `PLAN.md` v1.3.
-- Restatement tooltip: `web/lib/queries.ts` already pulls
-  `old_value`/`new_value`/`detected_at` from `quality_log`; UI work
-  remains. PR #11 now flips forward-quarter `data_quality='partial'`
-  too, so the per-cell indicator already lights up on transitive
-  consumers — only the tooltip surface is missing.
-- ~~Cross-quarter recompute for `f.avg(...)` consumers (codex P2 from
-  PR #1).~~ **Closed by PR #11 @ `a0cfbdd`.**
-- Conditional formatting heat map, regulatory threshold amber flags.
+Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.
+Five atomic PRs in order A → B → C → D → E. PR-A landed today; PR-B
+through PR-E remain. Cross-quarter recompute (originally item g)
+already merged via PR #11 and is excluded from the plan.
+
+- ~~**PR-A** Restatement tooltip~~ **Closed by PR #12 @ `80d2b58`.**
+  Hover on `r` superscript reveals "Was X, now Y (restated YYYY-MM-DD)"
+  with field code and conditional "values in thousands" suffix. Two
+  codex P2s caught and fixed on the same branch (commit `1edcaab`).
+- **PR-B** Per-peer column sort. TanStack `getSortedRowModel` + custom
+  `sortingFn` that pins MidFirst row to head and section rows to
+  original positions. URL search params `?sort=cert:dir`,
+  server-side parse in `app/page.tsx` to avoid hydration flicker.
+- **PR-C** Ratio category collapse/expand. Section header rows as click
+  targets; `?collapsed=cat1,cat2` URL params; server-side parse in
+  `page.tsx` (matches the existing `?anchor=` precedent).
+- **PR-D** Conditional formatting heat map (items e + f bundled —
+  both compete for cell background). New files `web/lib/heatmap.ts`,
+  `web/lib/heatmap-directions.ts`, `web/lib/regulatory-thresholds.ts`.
+  Honor `docs/design.md` "300% amber, 400% red" CRE two-tier. Quartile
+  cutoffs exclude `data_quality === 'suppressed'` cells. `cre_rbc`
+  36-month growth gate **deferred** to Phase 4 with a footnote ("Growth
+  gate not yet wired — see SR 07-1 §III.A") to preserve the "no formula
+  logic in TS" rule.
+- **PR-E** Per-ratio drilldown at `/ratio/[ratio_id]`. 8-quarter
+  Recharts `LineChart` + ScatterChart strip plot (not box plot — N=5
+  peers is statistically thin). Add `recharts` (~90 KB gzipped) only to
+  this route's bundle.
 
 ### Phase 3 — closed end-to-end
 
@@ -311,14 +415,14 @@ warm load. Deploy report at `.gstack/deploy-reports/2026-05-22-pr11-deploy.md`.
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PR-#11 — cross-quarter recompute closed
+#   <new HANDOFF commit>  docs(handoff): post-PR-#12 — Sprint 2 PR-A landed
+#   80d2b58  feat(web): restatement tooltip on `r` superscript (Sprint 2 PR-A) (#12)
+#   124852d  docs(handoff): post-PR-#11 — cross-quarter recompute closed
 #   a0cfbdd  fix(ingest): forward-quarter flip for f.avg consumers (codex P2 from PR #1) (#11)
 #   0f0f010  docs(handoff): post-PRs-#9/#10 — Sprint 2 next
 #   14a7a13  fix(web): h-dvh viewport + remove section row double border (#10)
 #   8492adb  chore(ci): bump actions/checkout v4 → v6.0.2 (Node 24 native) (#9)
 #   4804a00  docs(handoff): post-PR-#8 — Phase 3 closed on prod, PR #9 open
-#   eac9f16  feat(web): proxy Sentry events through /monitoring tunnel
-#   7f177d2  fix(web): sticky table header + first column on scroll
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 85 passed
@@ -487,19 +591,40 @@ and 2026-05-24 ~03:00 UTC (free-tier delay of a few hours is normal). No
 action required — check `gh run list --workflow=daily-ingest.yml --limit 5`
 on each of those days. Once the third lands, Phase 3 is DoD-complete.
 
-**In parallel: Phase 2 Sprint 2 in plan mode.** PR #11 closed the
-cross-quarter recompute item. Remaining Sprint 2 work: per-peer sort,
-ratio category collapse/expand, per-ratio drilldown route, restatement
-tooltip (per-cell indicator already lights up post-#11; only the hover
-surface is missing), conditional formatting heat map, regulatory
-threshold amber flags.
+**Active: Phase 2 Sprint 2 PR-B (per-peer column sort).** The Sprint 2
+plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
+landed today (PR #12); the next chunk is PR-B.
 
-The new-chat prompt is at `~/.claude/plans/next-chat-prompt-amber-flag.md`.
-Open a fresh Claude Code session, paste the contents, and the session will
-enter plan mode and design the Sprint 2 sequencing (which features as which
-PRs, in what order, with what test plans) before writing any code. The
-prompt predates PR #11 — call out at the top of the new session that
-cross-quarter recompute is already merged so the plan doesn't double-count it.
+PR-B scope (from the plan):
+
+- `web/components/ratio-matrix.tsx` — enable TanStack
+  `getSortedRowModel`, lift `sorting` state with `useState`, persist to
+  URL search params (`?sort=cert:dir`, e.g. `?sort=4063:desc`).
+- **Custom sort partitioner:** TanStack's default sort would reshuffle
+  MidFirst into peer-name order. Wrap the row model so
+  `{ kind: "section" }` rows pin to their original positions and
+  `{ kind: "data" }` rows with `cert === anchorCert` pin to the head of
+  each section. Implement as a `sortingFn` returning 0 for
+  non-comparable rows (cleaner than mutating row model post-sort).
+- New optional component `web/components/sort-header.tsx` or inline in
+  `ratio-matrix.tsx` — `<th>` content with a chevron driven by
+  `header.column.getIsSorted()`.
+- `web/app/page.tsx` — parse `?sort=` server-side and thread initial
+  sort state into the matrix to avoid hydration flicker.
+- Test plan: unit (sort partitioner against a fixture — anchor at row
+  0, sections unmoved), integration (three header clicks cycle
+  asc/desc/none, URL updates), visual smoke (scroll + sort works under
+  sticky header).
+
+Branch `phase-2-per-peer-sort`. Same flow as PR-A: implement, local
+verify (`uv run pytest`, `npm run lint`, `npm run build`), push, open PR,
+`/codex review` gate, fix P1/P2s on the same branch, squash-merge.
+
+Sprint 2 PR sequence after PR-B: PR-C (category collapse/expand) → PR-D
+(heat map + amber flags) → PR-E (drilldown route). PR-A's hand-written
+Radix Tooltip wrapper at `web/components/ui/tooltip.tsx` is the
+primitive PR-D will reuse for amber-flag regulatory citations — no
+shadcn re-init needed.
 
 Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
 Excel export + banking design pass + README/Loom) is the only thing left.
