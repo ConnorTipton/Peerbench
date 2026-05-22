@@ -15,8 +15,14 @@ import {
   restatementKey,
   type MatrixCell,
   type RatioGroup,
+  type RestatedDetail,
 } from "@/lib/matrix-types";
-import { EM_DASH, formatRatio } from "@/lib/format";
+import { EM_DASH, formatFactValue, formatRatio, formatReportDate } from "@/lib/format";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import type { Institution, RatioCategory, RatioDef } from "@/types/db";
 
 // Carry the cert on each peer column so anchor-column detection doesn't
@@ -37,7 +43,7 @@ type Props = {
   institutions: Institution[];
   ratioGroups: RatioGroup[];
   cells: Map<string, MatrixCell>;
-  restatedKeys: Set<string>;
+  restatedDetails: Map<string, RestatedDetail>;
   anchorCert: number;
 };
 
@@ -52,7 +58,7 @@ export function RatioMatrix({
   institutions,
   ratioGroups,
   cells,
-  restatedKeys,
+  restatedDetails,
   anchorCert,
 }: Props) {
   const rows: Row[] = useMemo(() => {
@@ -99,12 +105,12 @@ export function RatioMatrix({
         const r = row.original;
         if (r.kind === "section") return null;
         const c = cells.get(cellKey(inst.cert, r.def.ratio_id));
-        const restated = restatedKeys.has(restatementKey(inst.cert, r.def.ratio_id));
+        const restated = restatedDetails.get(restatementKey(inst.cert, r.def.ratio_id));
         return <DataCell cell={c} restated={restated} />;
       },
     }));
     return [ratioColumn, ...peerColumns];
-  }, [institutions, cells, restatedKeys]);
+  }, [institutions, cells, restatedDetails]);
 
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
@@ -194,7 +200,13 @@ export function RatioMatrix({
   );
 }
 
-function DataCell({ cell, restated }: { cell: MatrixCell | undefined; restated: boolean }) {
+function DataCell({
+  cell,
+  restated,
+}: {
+  cell: MatrixCell | undefined;
+  restated: RestatedDetail | undefined;
+}) {
   if (!cell) {
     return <span className="text-text-tertiary">{EM_DASH}</span>;
   }
@@ -208,12 +220,20 @@ function DataCell({ cell, restated }: { cell: MatrixCell | undefined; restated: 
     >
       {formatted}
       {restated && (
-        <sup
-          title="Restated since first publication — see quality_log"
-          className="ml-0.5 text-text-secondary"
-        >
-          r
-        </sup>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="ml-0.5 cursor-help align-super text-[10px] leading-none text-text-secondary rounded-sm focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+              aria-label={`Underlying input ${restated.field_code} restated since first publication`}
+            >
+              r
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="center">
+            <RestatementTooltipBody detail={restated} />
+          </TooltipContent>
+        </Tooltip>
       )}
       {cell.data_quality !== "ok" && (
         <span
@@ -223,5 +243,27 @@ function DataCell({ cell, restated }: { cell: MatrixCell | undefined; restated: 
         />
       )}
     </span>
+  );
+}
+
+// Fields where old_value/new_value are NOT dollar amounts. Today only
+// CBLRIND (Community Bank Leverage Ratio election flag, 0/1). Add to the
+// set when new non-dollar fields enter the handler dependency graph.
+const NON_DOLLAR_FIELDS = new Set<string>(["CBLRIND"]);
+
+function RestatementTooltipBody({ detail }: { detail: RestatedDetail }) {
+  const showThousandsLabel = !NON_DOLLAR_FIELDS.has(detail.field_code);
+  return (
+    <div className="space-y-0.5">
+      <div>
+        <span className="font-medium">{detail.field_code}</span>: was{" "}
+        <span className="font-medium">{formatFactValue(detail.old_value)}</span>, now{" "}
+        <span className="font-medium">{formatFactValue(detail.new_value)}</span>
+      </div>
+      <div className="text-text-secondary">
+        Restated {formatReportDate(detail.detected_at)}
+        {showThousandsLabel ? " · values in thousands" : ""}
+      </div>
+    </div>
   );
 }

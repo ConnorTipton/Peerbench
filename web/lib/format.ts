@@ -15,6 +15,10 @@ const PERCENT_FMT = new Intl.NumberFormat("en-US", {
   maximumFractionDigits: 2,
 });
 
+const FACT_VALUE_FMT = new Intl.NumberFormat("en-US", {
+  maximumFractionDigits: 0,
+});
+
 export const EM_DASH = "—";
 
 export function formatRatio(value: number | null | undefined): string {
@@ -25,6 +29,21 @@ export function formatRatio(value: number | null | undefined): string {
     return `(${PERCENT_FMT.format(-value)})`;
   }
   return PERCENT_FMT.format(value);
+}
+
+// Raw fact value from quality_log.old_value / .new_value. Call Report
+// dollar fields are reported in thousands by FFIEC convention, so the
+// formatted output carries a "(thousands)" suffix to make the unit
+// unambiguous in restatement tooltips. Non-dollar fact types (e.g. counts)
+// are rare and benign — the suffix is still strictly correct.
+export function formatFactValue(value: number | null | undefined): string {
+  if (value === null || value === undefined || !Number.isFinite(value)) {
+    return EM_DASH;
+  }
+  if (value < 0) {
+    return `(${FACT_VALUE_FMT.format(-value)})`;
+  }
+  return FACT_VALUE_FMT.format(value);
 }
 
 export function formatReportDate(isoDate: string): string {
