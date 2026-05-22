@@ -8,7 +8,7 @@ import {
   type RowData,
 } from "@tanstack/react-table";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 
 import { CATEGORY_LABELS } from "@/lib/ratio-order";
 import {
@@ -75,6 +75,19 @@ export function RatioMatrix({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+
+  // Resync local sort when the server-derived initialSort changes (e.g. user
+  // hits back/forward, or another control rewrites `?sort=`). Compared on
+  // primitive cert/dir to avoid re-firing on referentially-new-but-equal
+  // SortState objects from the server.
+  useEffect(() => {
+    setSort((prev) => {
+      if (prev?.cert === initialSort?.cert && prev?.dir === initialSort?.dir) {
+        return prev;
+      }
+      return initialSort;
+    });
+  }, [initialSort?.cert, initialSort?.dir, initialSort]);
 
   const applySort = useCallback(
     (cert: number) => {
