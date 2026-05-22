@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 night, Sprint 2 plan locked + PR-A landed)
+# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A + PR-B landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -12,6 +12,18 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
   design decisions confirmed: shadcn/Radix Tooltip primitive, defer the
   `cre_rbc` 36-month growth gate with a footnote (Phase 4 follow-up to
   ship `cre_rbc_growth_36mo` as a pipeline ratio), 5-atomic-PR chunking.
+- **PR #13 (Sprint 2 PR-B) merged at `df6d80d`.** Per-peer column sort.
+  Clicking a peer column header sorts ratio rows by that peer's value,
+  cycling **asc → desc → none**; section dividers act as barriers (sort
+  within each category, not globally). URL state via `?sort=cert:dir`
+  (e.g. `?sort=4063:desc`), parsed server-side in `app/page.tsx` so deep
+  links render in the right order with no hydration flicker; client
+  updates via `router.replace` + `useTransition`. Pure helpers live in
+  `web/lib/sort.ts`. Two codex P2s caught on first review (back/forward
+  nav drift + repeated-key search-param crash) and fixed on the same
+  branch via commit `365575d`; round 2 codex GATE PASS, **0 findings**.
+  Live on prod — `?sort=4063:asc` returns 1 col ascending / 4 none;
+  `?sort=A&sort=B` returns HTTP 200 (no crash on repeated keys).
 - **PR #12 (Sprint 2 PR-A) merged at `80d2b58`.** Restatement tooltip
   per `docs/design.md` §Restatement-indicator. Hovering the `r` on any
   restated cell now reveals `LNLSGR: was 1,234,567, now 1,234,890`
@@ -67,13 +79,90 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 85 passing** (unchanged this session — PR-A was JS/TS
-  only, no Python value-path code touched).
-- **Working tree:** on `main` @ `80d2b58`, clean. Feature branches
-  `phase-2-cross-quarter-recompute` and `phase-2-restatement-tooltip`
-  both deleted on merge.
+- **Test count: 85 passing** (unchanged across PR-A and PR-B — both
+  were JS/TS only, no Python value-path code touched).
+- **Working tree:** on `main` @ `df6d80d`, clean. Feature branches
+  `phase-2-cross-quarter-recompute`, `phase-2-restatement-tooltip`, and
+  `phase-2-per-peer-sort` all deleted on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13)
+
+### PR #13 — Sprint 2 PR-B: per-peer column sort (squash-merge `df6d80d`)
+
+Branch `phase-2-per-peer-sort`. Two commits squashed on merge:
+
+1. **`6e70261` — `feat(web):` per-peer column sort.** Implements the
+   Sprint 2 PR-B item from `~/.claude/plans/zippy-pondering-volcano.md`.
+   Sort cycle on the active column is **asc → desc → none**; section
+   dividers act as barriers (sort within each category, not globally).
+   New pure-helpers module at `web/lib/sort.ts` (`parseSortParam`,
+   `serializeSortParam`, `nextSortState`, `compareValues`,
+   `sortWithinSections`) — framework-free and ready for unit tests when
+   a JS test runner lands in `web/`.
+2. **`365575d` — `fix(web):` codex P2 — URL→state sync + repeated-key
+   search-param hardening.** In-PR fixup for both P2s codex flagged on
+   commit `6e70261`.
+
+**Diff (3 files, +218/-12):**
+
+- `web/lib/sort.ts` (+85, new) — pure helpers + section-aware
+  partitioner. Null-valued cells (suppressed / missing) always sort to
+  the bottom regardless of direction so blanks never masquerade as 0
+  or huge. Stable sort guaranteed (ES2019+) so equal compare values
+  preserve input order.
+- `web/components/ratio-matrix.tsx` (+123/-9) — sort state via
+  `useState(initialSort)` + URL sync via `router.replace` /
+  `useTransition` (matches the existing `?anchor=` pattern in
+  `anchor-select.tsx`). `useEffect` resyncs local sort when the
+  server-derived `initialSort` actually changes (back/forward nav
+  case), compared by primitive cert/dir to avoid re-fires on
+  referentially-new-but-equal SortState objects. New `SortHeader`
+  component renders the header as a `<button>` with an `aria-label`
+  and a unicode chevron (`↑` / `↓` / `↕`); `aria-sort` lives on the
+  `<th>` per spec, with values `"ascending"` / `"descending"` /
+  `"none"` keyed on the column's `meta.cert`. Focus ring is
+  `focus-visible:outline-1 focus-visible:outline-accent` per
+  `docs/design.md` "single accent color for focus rings".
+- `web/app/page.tsx` (+15/-3) — server-side `?sort=` parse, threaded
+  as `initialSort` into `<RatioMatrix>` to avoid hydration flicker.
+  `SearchParams` type now acknowledges `string | string[]` (Next.js
+  represents repeated query-string keys as arrays at runtime), and a
+  `firstParam()` boundary normalizer is applied to both `sort` and
+  `anchor` before parsing. Downstream parsers in `lib/sort.ts` stay
+  pure (`string | undefined` in).
+
+**Codex round-trip:**
+
+- Round 1 (`6e70261`): GATE PASS (0 P1, 2 P2).
+  - **[P2-A]** `useState(initialSort)` only runs on mount, so when
+    the URL changed via back/forward nav (or any other route that
+    rewrote `?sort=`), the client component kept its stale local
+    sort and the table diverged from the URL bar. Fixed by adding a
+    `useEffect` that resyncs `sort` when the server-derived
+    `initialSort` changes, compared by primitive cert/dir.
+  - **[P2-B]** Next.js represents repeated query-string keys as
+    `string[]` at runtime even when the TypeScript narrows to
+    `string`. A URL like `?sort=4063:asc&sort=4214:desc` would have
+    hit `raw.split(":")` on an array and 500'd the page. Fixed by
+    updating `SearchParams` to `string | string[]` and adding
+    `firstParam()` at the boundary.
+- Round 2 (`365575d`): GATE PASS, **0 findings**. Codex verbatim:
+  *"The URL parameter normalization covers the expected Next.js
+  string, string array, missing, and empty-value shapes. The sort
+  resync effect compares primitive fields before updating state and
+  does not create an update loop, while the optimistic sort update
+  is not immediately overwritten by unchanged props."*
+
+**Verification on merge:** 85/85 tests pass. `npm run lint` 0 errors,
+1 warning (the same pre-existing TanStack memo warning at
+`ratio-matrix.tsx:174`). `npm run build` clean Turbopack compile.
+Vercel rebuild succeeded; prod URL HTTP 200 on both
+`/?sort=4063:asc` (aria-sort=`ascending` on the MidFirst col, `none`
+on the other four) and `/?sort=A&sort=B` (HTTP 200, no crash on
+repeated keys). Warm TTFB 1.4 s on first hit (cold cache after
+deploy); previously banked warm TTFB 330-600 ms held.
+
+
 
 ### PR #6 — Phase 3 hosting (squash-merge `75e5205`)
 
@@ -339,18 +428,23 @@ Vercel rebuild succeeded; prod URL HTTP 200, **573 ms TTFB**
 ### Phase 2 — Sprint 2 (in flight)
 
 Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.
-Five atomic PRs in order A → B → C → D → E. PR-A landed today; PR-B
-through PR-E remain. Cross-quarter recompute (originally item g)
+Five atomic PRs in order A → B → C → D → E. PR-A and PR-B landed today;
+PR-C through PR-E remain. Cross-quarter recompute (originally item g)
 already merged via PR #11 and is excluded from the plan.
 
 - ~~**PR-A** Restatement tooltip~~ **Closed by PR #12 @ `80d2b58`.**
   Hover on `r` superscript reveals "Was X, now Y (restated YYYY-MM-DD)"
   with field code and conditional "values in thousands" suffix. Two
   codex P2s caught and fixed on the same branch (commit `1edcaab`).
-- **PR-B** Per-peer column sort. TanStack `getSortedRowModel` + custom
-  `sortingFn` that pins MidFirst row to head and section rows to
-  original positions. URL search params `?sort=cert:dir`,
-  server-side parse in `app/page.tsx` to avoid hydration flicker.
+- ~~**PR-B** Per-peer column sort~~ **Closed by PR #13 @ `df6d80d`.**
+  Header-click cycle asc → desc → none, sort scoped within each
+  category section (sections act as barriers, not pinned dividers —
+  the plan's "anchor row pinning" language didn't match the data
+  model; rows are ratios, columns are peers). Pure-helpers module at
+  `web/lib/sort.ts`. Two codex P2s caught and fixed on the same
+  branch (commit `365575d`): URL-change resync via `useEffect` keyed
+  on primitive cert/dir, and `string | string[]` boundary
+  normalization in `app/page.tsx`.
 - **PR-C** Ratio category collapse/expand. Section header rows as click
   targets; `?collapsed=cat1,cat2` URL params; server-side parse in
   `page.tsx` (matches the existing `?anchor=` precedent).
@@ -415,20 +509,20 @@ already merged via PR #11 and is excluded from the plan.
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PR-#12 — Sprint 2 PR-A landed
+#   <new HANDOFF commit>  docs(handoff): post-PR-#13 — Sprint 2 PR-B landed
+#   df6d80d  feat(web): per-peer column sort (Sprint 2 PR-B) (#13)
+#   2e5dbc7  docs(handoff): post-PR-#12 — Sprint 2 PR-A landed
 #   80d2b58  feat(web): restatement tooltip on `r` superscript (Sprint 2 PR-A) (#12)
 #   124852d  docs(handoff): post-PR-#11 — cross-quarter recompute closed
 #   a0cfbdd  fix(ingest): forward-quarter flip for f.avg consumers (codex P2 from PR #1) (#11)
 #   0f0f010  docs(handoff): post-PRs-#9/#10 — Sprint 2 next
 #   14a7a13  fix(web): h-dvh viewport + remove section row double border (#10)
-#   8492adb  chore(ci): bump actions/checkout v4 → v6.0.2 (Node 24 native) (#9)
-#   4804a00  docs(handoff): post-PR-#8 — Phase 3 closed on prod, PR #9 open
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 85 passed
 
 cd web && npm run lint 2>&1 | tail -3
-# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:109).
+# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:174).
 
 cd web && npm run build 2>&1 | tail -8
 # Expect: clean Turbopack compile. If SENTRY_AUTH_TOKEN is set,
@@ -591,40 +685,38 @@ and 2026-05-24 ~03:00 UTC (free-tier delay of a few hours is normal). No
 action required — check `gh run list --workflow=daily-ingest.yml --limit 5`
 on each of those days. Once the third lands, Phase 3 is DoD-complete.
 
-**Active: Phase 2 Sprint 2 PR-B (per-peer column sort).** The Sprint 2
-plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
-landed today (PR #12); the next chunk is PR-B.
+**Active: Phase 2 Sprint 2 PR-C (ratio category collapse/expand).** The
+Sprint 2 plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`.
+PR-A landed earlier (PR #12); PR-B landed today (PR #13); the next chunk
+is PR-C.
 
-PR-B scope (from the plan):
+PR-C scope (from the plan, lines 129-161):
 
-- `web/components/ratio-matrix.tsx` — enable TanStack
-  `getSortedRowModel`, lift `sorting` state with `useState`, persist to
-  URL search params (`?sort=cert:dir`, e.g. `?sort=4063:desc`).
-- **Custom sort partitioner:** TanStack's default sort would reshuffle
-  MidFirst into peer-name order. Wrap the row model so
-  `{ kind: "section" }` rows pin to their original positions and
-  `{ kind: "data" }` rows with `cert === anchorCert` pin to the head of
-  each section. Implement as a `sortingFn` returning 0 for
-  non-comparable rows (cleaner than mutating row model post-sort).
-- New optional component `web/components/sort-header.tsx` or inline in
-  `ratio-matrix.tsx` — `<th>` content with a chevron driven by
-  `header.column.getIsSorted()`.
-- `web/app/page.tsx` — parse `?sort=` server-side and thread initial
-  sort state into the matrix to avoid hydration flicker.
-- Test plan: unit (sort partitioner against a fixture — anchor at row
-  0, sections unmoved), integration (three header clicks cycle
-  asc/desc/none, URL updates), visual smoke (scroll + sort works under
-  sticky header).
+- `web/components/ratio-matrix.tsx` — section header rows become click
+  targets that toggle the corresponding category's data rows in/out
+  of the rendered set. URL search params `?collapsed=cat1,cat2`,
+  server-side parse in `app/page.tsx` (matches the existing `?anchor=`
+  and `?sort=` precedents from PR-B).
+- Persist collapsed state same way PR-B persisted sort state:
+  `useState` + `useEffect` resync on prop change for back/forward nav,
+  `router.replace` + `useTransition` on click.
+- Visual: the section row's existing label keeps its `text-section-
+  header font-semibold uppercase` styling; add a small chevron
+  indicator (`▾` / `▸`) and `aria-expanded` for accessibility. Keep
+  the section row clickable as a `<button>` wrapping the existing
+  `<td colSpan>` content so the entire row is a hit target.
+- Edge case: ensure sort still works when a category is collapsed
+  (sort scope shouldn't include hidden rows, but the section's data
+  rows when re-expanded should still be in the right sorted order).
 
-Branch `phase-2-per-peer-sort`. Same flow as PR-A: implement, local
+Branch `phase-2-category-collapse`. Same flow as PR-B: implement, local
 verify (`uv run pytest`, `npm run lint`, `npm run build`), push, open PR,
 `/codex review` gate, fix P1/P2s on the same branch, squash-merge.
 
-Sprint 2 PR sequence after PR-B: PR-C (category collapse/expand) → PR-D
-(heat map + amber flags) → PR-E (drilldown route). PR-A's hand-written
-Radix Tooltip wrapper at `web/components/ui/tooltip.tsx` is the
-primitive PR-D will reuse for amber-flag regulatory citations — no
-shadcn re-init needed.
+Sprint 2 PR sequence after PR-C: PR-D (heat map + amber flags) → PR-E
+(drilldown route). PR-A's hand-written Radix Tooltip wrapper at
+`web/components/ui/tooltip.tsx` is the primitive PR-D will reuse for
+amber-flag regulatory citations — no shadcn re-init needed.
 
 Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
 Excel export + banking design pass + README/Loom) is the only thing left.
