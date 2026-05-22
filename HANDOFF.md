@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 late evening, Phase 3 closed + PRs #9/#10 merged)
+# Peerbench — handoff (2026-05-22 night, PR #11 merged — cross-quarter recompute closed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,8 +6,17 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
-- **Phase 3 fully closed in production.** Five PRs squash-merged today
-  (2026-05-22) on top of the plumbing landed yesterday:
+- **PR #11 merged at `a0cfbdd`** (Phase 2 Sprint 2 first item).
+  Restatement detector now issues a forward-quarter `UPDATE ratios SET
+  data_quality='partial'` for rows whose `f.avg(...)` window reaches back
+  through a restated quarter — closes the codex P2 from PR #1. Direct
+  consumers today: `nco_ratio` (LNLSGR). Transitive via
+  `RATIO_DEPENDENCIES`: `nis` ← `cost_funds` ← DEPI. Forward window is
+  `(Y, Qn+1..Q4)` same-year and `(Y+1, Q1..Q4)` on Q4 restatements.
+  Zero handler bodies touched; AST snapshot unchanged; all handlers stay
+  at `version="v1"`.
+- **Phase 3 fully closed in production.** Five PRs squash-merged on
+  2026-05-22 on top of the plumbing landed yesterday:
   - **PR #6 @ `75e5205`** — Vercel deploy + Sentry. Hand-configured Sentry on
     Next.js 16 + Turbopack (`@sentry/nextjs@10.53.1`), v8+ layout
     (`instrumentation.ts` + `instrumentation-client.ts` +
@@ -43,11 +52,13 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 78 passing** — unchanged this session (no value-path code
-  touched).
-- **Working tree:** on `main` @ `14a7a13`, clean.
+- **Test count: 85 passing** (+7 from PR #11's
+  `TestQualityLogCallbackCrossQuarter` + field-deps walker tests). No
+  value-path code touched (handler bodies unchanged).
+- **Working tree:** on `main` @ `a0cfbdd`, clean. Feature branch
+  `phase-2-cross-quarter-recompute` deleted on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11)
 
 ### PR #6 — Phase 3 hosting (squash-merge `75e5205`)
 
@@ -172,6 +183,49 @@ shipped via this PR. 1 P3 remains — anchor tint `6%` hardcoded as
 inline style at `ratio-matrix.tsx:133`. Deferred to the Phase 4 design
 pass; informational, not blocking.
 
+### PR #11 — cross-quarter recompute for f.avg consumers (squash-merge `a0cfbdd`)
+
+Branch `phase-2-cross-quarter-recompute`. Closes the codex P2 from PR #1:
+when a Qn restatement landed, the detector only flipped the same-quarter
+`ratios` row to `data_quality='partial'` — but YTD-averaging handlers
+(`f.avg(field, periods=f.quarter_number + 1)`) consume that restated value
+across the rest of the FDIC year (and into the next year for Q4
+restatements). Until the next compute pass, the dashboard rendered stale
+forward-quarter values with no indicator.
+
+**Diff (4 files, +456/-13, zero handler bodies touched):**
+
+- `src/peerbench/ingest/quality_log.py` (+92) — restatement detector now
+  issues a second `UPDATE ratios SET data_quality='partial'` for forward
+  quarters whose `f.avg(...)` window reaches back through the restated
+  quarter. Same-quarter behavior unchanged.
+- `src/peerbench/ratio_engine/field_deps.py` (+111, new file) — AST walker
+  that resolves which handlers consume a given field via `f.avg(...)`,
+  walking `RATIO_DEPENDENCIES` for transitive consumers (so DEPI →
+  `cost_funds` → `nis` flips together).
+- `tests/contract/test_ratio_registry.py` (+124) — contract test that the
+  field-deps walker stays in sync with handler ASTs.
+- `tests/unit/test_quality_log_callback.py` (+142) — new
+  `TestQualityLogCallbackCrossQuarter` class covering:
+  - LNLSGR @ 2025-Q2 → forward flip on Q3 + Q4 `nco_ratio` only.
+  - LNLSGR @ 2024-Q4 → forward flip on `2025-Q1..Q4` (next-year rollover).
+  - DEPI @ 2025-Q1 → forward flip on `cost_funds` AND `nis` (transitive);
+    `yield_ea` correctly excluded.
+  - NIM @ 2025-Q2 → exactly ONE UPDATE (no forward flip for non-`f.avg`).
+  - Unconsumed field → zero UPDATEs (defensive parity).
+
+**Forward-affected window pattern** (under
+`periods=f.quarter_number + 1`):
+
+- `(Y, Q1..Q3)` restatement → `(Y, Q+1..Q4)`.
+- `(Y, Q4)` restatement → `(Y+1, Q1..Q4)` (Q4 is the prior year-end
+  balance every Y+1 quarter averages in).
+
+**Verification on merge:** codex review GATE PASS with 0 findings on the
+diff. 85/85 tests pass. Vercel rebuild succeeded (no `web/` changes, no-op
+rebuild); prod URL `https://peerbench-web.vercel.app/` HTTP 200, 1.6s
+warm load. Deploy report at `.gstack/deploy-reports/2026-05-22-pr11-deploy.md`.
+
 ## Open items / state of play
 
 ### Phase 1 — fully closed
@@ -202,8 +256,11 @@ pass; informational, not blocking.
   per `PLAN.md` v1.3.
 - Restatement tooltip: `web/lib/queries.ts` already pulls
   `old_value`/`new_value`/`detected_at` from `quality_log`; UI work
-  remains.
-- Cross-quarter recompute for `f.avg(...)` consumers (codex P2 from PR #1).
+  remains. PR #11 now flips forward-quarter `data_quality='partial'`
+  too, so the per-cell indicator already lights up on transitive
+  consumers — only the tooltip surface is missing.
+- ~~Cross-quarter recompute for `f.avg(...)` consumers (codex P2 from
+  PR #1).~~ **Closed by PR #11 @ `a0cfbdd`.**
 - Conditional formatting heat map, regulatory threshold amber flags.
 
 ### Phase 3 — closed end-to-end
@@ -254,17 +311,17 @@ pass; informational, not blocking.
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PRs #9/#10 — Sprint 2 next
+#   <new HANDOFF commit>  docs(handoff): post-PR-#11 — cross-quarter recompute closed
+#   a0cfbdd  fix(ingest): forward-quarter flip for f.avg consumers (codex P2 from PR #1) (#11)
+#   0f0f010  docs(handoff): post-PRs-#9/#10 — Sprint 2 next
 #   14a7a13  fix(web): h-dvh viewport + remove section row double border (#10)
 #   8492adb  chore(ci): bump actions/checkout v4 → v6.0.2 (Node 24 native) (#9)
 #   4804a00  docs(handoff): post-PR-#8 — Phase 3 closed on prod, PR #9 open
 #   eac9f16  feat(web): proxy Sentry events through /monitoring tunnel
 #   7f177d2  fix(web): sticky table header + first column on scroll
-#   75e5205  Phase 3 — Vercel deploy + Sentry
-#   dae4ba0  docs(handoff): post-PR-#5 — Phase 3 plumbing closed end-to-end
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
-# Expect: 78 passed
+# Expect: 85 passed
 
 cd web && npm run lint 2>&1 | tail -3
 # Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:109).
@@ -424,17 +481,25 @@ publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## Recommended first action
 
-**Phase 2 Sprint 2 in plan mode.** PR #9 and PR #10 are merged; PR #6/#7/#8
-shipped earlier today. The remaining critical-path work before Phase 4 polish
-is closing the Phase 2 DoD items that Sprint 1 deferred: per-peer sort, ratio
-category collapse/expand, per-ratio drilldown route, restatement tooltip,
-conditional formatting heat map, regulatory threshold amber flags, and the
-codex P2 from PR #1 (cross-quarter recompute when a Qn restatement lands).
+**Phase 3 DoD calendar gate (passive).** Daily-ingest cron is at 1 of 3
+required green firings. Next two are scheduled for 2026-05-23 ~03:00 UTC
+and 2026-05-24 ~03:00 UTC (free-tier delay of a few hours is normal). No
+action required — check `gh run list --workflow=daily-ingest.yml --limit 5`
+on each of those days. Once the third lands, Phase 3 is DoD-complete.
+
+**In parallel: Phase 2 Sprint 2 in plan mode.** PR #11 closed the
+cross-quarter recompute item. Remaining Sprint 2 work: per-peer sort,
+ratio category collapse/expand, per-ratio drilldown route, restatement
+tooltip (per-cell indicator already lights up post-#11; only the hover
+surface is missing), conditional formatting heat map, regulatory
+threshold amber flags.
 
 The new-chat prompt is at `~/.claude/plans/next-chat-prompt-amber-flag.md`.
 Open a fresh Claude Code session, paste the contents, and the session will
 enter plan mode and design the Sprint 2 sequencing (which features as which
-PRs, in what order, with what test plans) before writing any code.
+PRs, in what order, with what test plans) before writing any code. The
+prompt predates PR #11 — call out at the top of the new session that
+cross-quarter recompute is already merged so the plan doesn't double-count it.
 
 Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
 Excel export + banking design pass + README/Loom) is the only thing left.
