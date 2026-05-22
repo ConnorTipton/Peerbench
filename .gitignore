@@ -53,6 +53,10 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 
+# Sentry build-plugin artifacts (auth-token cache + per-build env).
+.sentryclirc
+.env*.sentry-build-plugin
+
 # Package manager logs
 npm-debug.log*
 yarn-debug.log*

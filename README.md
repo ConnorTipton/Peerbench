@@ -18,3 +18,15 @@ npm run dev                         # http://localhost:3000
 The dashboard reads the `ratios` table only — all formula logic lives in the
 Python pipeline. Design tokens are in [`docs/design.md`](./docs/design.md)
 and encoded in `web/app/globals.css`.
+
+## Deployment
+
+Production deploys to [Vercel](https://vercel.com) from `main` with **Root
+Directory = `web`** (set in the Vercel project, no `vercel.json` needed).
+Required environment variables are listed in
+[`web/.env.local.example`](./web/.env.local.example); `SENTRY_AUTH_TOKEN`,
+`SENTRY_ORG`, and `SENTRY_PROJECT` are set in Vercel only and gate source-map
+upload — local builds without the token skip the upload step.
+
+Daily ingest, weekly backup, RLS rollback, and restore procedures live in
+[`docs/operations.md`](./docs/operations.md).
