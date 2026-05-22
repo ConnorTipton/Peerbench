@@ -24,11 +24,18 @@ Encoded as Tailwind v4 `@theme` CSS variables.
 | `--color-accent`   | `#1E40AF` | Single accent — used sparingly       |
 | `--color-positive` | `#15803D` | Muted green; positive deltas         |
 | `--color-negative` | `#B91C1C` | Muted red; negative deltas           |
+| `--color-amber`    | `#B45309` | Regulatory amber flags (single-tier or first-tier two-tier) |
 | `--color-text`     | `#0F172A` | Primary text                         |
 | `--color-text-secondary` | `#64748B` | Secondary text                |
 | `--color-text-tertiary`  | `#94A3B8` | Tertiary/labels               |
 
-Conditional-formatting tints derive from `--color-positive` and `--color-negative` at low opacity (`/10` or `/15`). Never use full-saturation fills on data cells.
+Conditional-formatting tints derive from `--color-positive`, `--color-negative`, and `--color-amber` at low opacity. Opacity tiers:
+
+- **`/10`** — quartile heat-map tints (top quartile green, bottom quartile red). Subtle; doesn't compete with the value.
+- **`/15`** — regulatory amber (single-tier or first-tier of a two-tier ratio). More attention-demanding than quartile, less than red.
+- **`/20`** — regulatory red (second-tier of `cre_rbc` at ≥400%). Most attention-demanding tier, still a tint not a fill.
+
+Never use full-saturation fills on data cells.
 
 ## Typography
 
@@ -64,7 +71,7 @@ Direction-aware cell tinting on data tables.
 - **Top quartile:** `--color-positive` at low opacity tint.
 - **Bottom quartile:** `--color-negative` at low opacity tint.
 - **Middle two quartiles:** no fill.
-- **Direction-aware per ratio.** Higher NIM = positive (green). Higher efficiency ratio = negative (red). CRE concentration: yellow above 300%, red above 400% (regulatory thresholds, not quartile-based).
+- **Direction-aware per ratio.** Higher NIM = positive (green). Higher efficiency ratio = negative (red). CRE concentration: amber above 300%, red above 400% (regulatory thresholds, not quartile-based; see `lib/regulatory-thresholds.ts`).
 - Quartile cutoffs are computed per ratio across the currently visible peer set, not against a fixed reference.
 
 ## Restatement indicator
@@ -73,10 +80,10 @@ Any ratio cell whose underlying `facts.restated = true` for that quarter gets a 
 
 ## Regulatory threshold flags
 
-Amber-flag any cell crossing a regulatory threshold defined in `ratio_defs.regulatory_threshold`. Hover tooltip cites the source SR letter or FIL.
+Amber-flag any cell crossing a regulatory threshold defined in `ratio_defs.regulatory_threshold`. Hover tooltip cites the source SR letter or FIL. Layer precedence in the cell background is `amber > red > heatmap tint > anchor tint > zebra` — a regulatory trigger replaces the quartile tint entirely.
 
 - Construction & land development / total RBC ≥ 100% → amber. (SR 07-1 / OCC Bulletin 2006-46.)
-- CRE / total RBC ≥ 300% AND 36-month growth ≥ 50% → amber. (SR 07-1, reaffirmed FIL-23-2023.)
+- CRE / total RBC ≥ 300% → amber; ≥ 400% → red (two-tier). The SR 07-1 §III.A 36-month ≥50% growth gate is deferred to Phase 4 (will ship as pipeline ratio `cre_rbc_growth_36mo`); a footnote on the amber/red tooltip indicates the growth gate is not yet wired.
 - Brokered deposits / total deposits ≥ 10% → amber. (Heuristic, not regulatory.)
 - Uninsured deposits / total deposits ≥ 50% → amber. (Post-SVB heuristic.)
 - HTM unrealized loss / Tier 1 capital ≥ 25% → amber. (Post-SVB heuristic.)

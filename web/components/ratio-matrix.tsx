@@ -31,6 +31,17 @@ import {
   toggleCategory,
 } from "@/lib/collapse";
 import {
+  bucketForCell,
+  computeQuartileCutoffs,
+  type Bucket,
+  type QuartileCutoffs,
+} from "@/lib/heatmap";
+import { directionFor } from "@/lib/heatmap-directions";
+import {
+  resolveThreshold,
+  type ThresholdResult,
+} from "@/lib/regulatory-thresholds";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -179,6 +190,29 @@ export function RatioMatrix({
     );
   }, [sortedRows, collapsed]);
 
+  // Per-ratio quartile cutoffs across the visible peer set, excluding
+  // suppressed cells (e.g. CBLR filers' tier1_rbc) so they don't skew the
+  // distribution. Cutoffs are stable as long as the peer set + cell values
+  // don't change — sort/collapse never affect quartile bucketing because
+  // both are render-time transforms of the same underlying data.
+  const cutoffsByRatio = useMemo(() => {
+    const out = new Map<string, QuartileCutoffs | null>();
+    for (const group of ratioGroups) {
+      for (const def of group.defs) {
+        const values: number[] = [];
+        for (const inst of institutions) {
+          const c = cells.get(cellKey(inst.cert, def.ratio_id));
+          if (!c || c.data_quality === "suppressed" || c.value === null) {
+            continue;
+          }
+          values.push(c.value);
+        }
+        out.set(def.ratio_id, computeQuartileCutoffs(values));
+      }
+    }
+    return out;
+  }, [ratioGroups, institutions, cells]);
+
   const columns: ColumnDef<Row>[] = useMemo(() => {
     const ratioColumn: ColumnDef<Row> = {
       id: "ratio",
@@ -215,7 +249,15 @@ export function RatioMatrix({
         if (r.kind === "section") return null;
         const c = cells.get(cellKey(inst.cert, r.def.ratio_id));
         const restated = restatedDetails.get(restatementKey(inst.cert, r.def.ratio_id));
-        return <DataCell cell={c} restated={restated} />;
+        const threshold = c ? resolveThreshold(r.def, c.value) : null;
+        return (
+          <DataCell
+            cell={c}
+            restated={restated}
+            threshold={threshold}
+            ratioName={r.def.display_name}
+          />
+        );
       },
     }));
     return [ratioColumn, ...peerColumns];
@@ -297,11 +339,28 @@ export function RatioMatrix({
               <tr key={row.id}>
                 {row.getVisibleCells().map((cell) => {
                   const isRatioCol = cell.column.id === "ratio";
-                  const isAnchorCol =
-                    !isRatioCol && cell.column.columnDef.meta?.cert === anchorCert;
-                  const cellBg = isAnchorCol
-                    ? "color-mix(in srgb, var(--color-primary) 6%, " + zebra + ")"
-                    : zebra;
+                  const cert = cell.column.columnDef.meta?.cert;
+                  const isAnchorCol = !isRatioCol && cert === anchorCert;
+                  // Layer precedence (locked Sprint 2 PR-D plan):
+                  //   amber > red > heatmap tint > anchor tint > zebra.
+                  // Only data cells (peer columns under a data row) participate
+                  // in the heat-map / regulatory layers; the ratio-name column
+                  // and section rows keep the base background.
+                  let cellBg: string;
+                  if (isRatioCol || cert === undefined) {
+                    cellBg = composeCellBg({ zebra, isAnchorCol, threshold: null, bucket: "none" });
+                  } else {
+                    const c = cells.get(cellKey(cert, r.def.ratio_id));
+                    const threshold = c ? resolveThreshold(r.def, c.value) : null;
+                    const bucket: Bucket = threshold
+                      ? "none"
+                      : bucketForCell(
+                          c?.value ?? null,
+                          cutoffsByRatio.get(r.def.ratio_id) ?? null,
+                          directionFor(r.def.ratio_id),
+                        );
+                    cellBg = composeCellBg({ zebra, isAnchorCol, threshold, bucket });
+                  }
                   return (
                     <td
                       key={cell.id}
@@ -329,9 +388,13 @@ export function RatioMatrix({
 function DataCell({
   cell,
   restated,
+  threshold,
+  ratioName,
 }: {
   cell: MatrixCell | undefined;
   restated: RestatedDetail | undefined;
+  threshold: ThresholdResult | null;
+  ratioName: string;
 }) {
   if (!cell) {
     return <span className="text-text-tertiary">{EM_DASH}</span>;
@@ -345,6 +408,29 @@ function DataCell({
       }}
     >
       {formatted}
+      {threshold && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={[
+                "ml-0.5 cursor-help align-super text-[10px] leading-none rounded-sm",
+                "focus:outline-none focus-visible:outline-1 focus-visible:outline-accent",
+                threshold.level === "red" ? "text-negative" : "text-amber",
+              ].join(" ")}
+              aria-label={`${ratioName} crosses ${threshold.level} regulatory threshold at ${threshold.threshold_pct}%`}
+            >
+              △
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="center">
+            <RegulatoryFlagTooltipBody
+              threshold={threshold}
+              ratioName={ratioName}
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
       {restated && (
         <Tooltip>
           <TooltipTrigger asChild>
@@ -369,6 +455,65 @@ function DataCell({
         />
       )}
     </span>
+  );
+}
+
+// Layered cell-background composition: anchor tint over zebra is the base;
+// quartile heat-map tints layer on top via color-mix; regulatory amber/red
+// replace the quartile tint entirely (locked Sprint 2 PR-D precedence).
+// Opacity tiers per docs/design.md §Conditional formatting:
+// quartile /10 (subtle), amber /15 (attention), red /20 (most demanding).
+function composeCellBg({
+  zebra,
+  isAnchorCol,
+  threshold,
+  bucket,
+}: {
+  zebra: string;
+  isAnchorCol: boolean;
+  threshold: ThresholdResult | null;
+  bucket: Bucket;
+}): string {
+  const base = isAnchorCol
+    ? `color-mix(in srgb, var(--color-primary) 6%, ${zebra})`
+    : zebra;
+  if (threshold?.level === "red") {
+    return `color-mix(in srgb, var(--color-negative) 20%, ${base})`;
+  }
+  if (threshold?.level === "amber") {
+    return `color-mix(in srgb, var(--color-amber) 15%, ${base})`;
+  }
+  if (bucket === "top") {
+    return `color-mix(in srgb, var(--color-positive) 10%, ${base})`;
+  }
+  if (bucket === "bottom") {
+    return `color-mix(in srgb, var(--color-negative) 10%, ${base})`;
+  }
+  return base;
+}
+
+function RegulatoryFlagTooltipBody({
+  threshold,
+  ratioName,
+}: {
+  threshold: ThresholdResult;
+  ratioName: string;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div>
+        <span className="font-medium">{ratioName}</span>: above{" "}
+        <span className="font-medium">{threshold.threshold_pct}%</span>
+        {" "}
+        ({threshold.level === "red" ? "red" : "amber"} flag)
+      </div>
+      <div className="text-text-secondary">{threshold.citation}</div>
+      {threshold.footnote && (
+        <div className="text-text-tertiary text-[10px]">
+          {threshold.footnote}
+        </div>
+      )}
+    </div>
   );
 }
 
