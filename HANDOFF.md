@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A + PR-B + PR-C landed)
+# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A/B/C + Vitest setup landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -12,6 +12,19 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
   design decisions confirmed: shadcn/Radix Tooltip primitive, defer the
   `cre_rbc` 36-month growth gate with a footnote (Phase 4 follow-up to
   ship `cre_rbc_growth_36mo` as a pipeline ratio), 5-atomic-PR chunking.
+- **PR #15 (Vitest test runner) merged at `ef4b45c`.** Zero-feature
+  setup PR landed ahead of Sprint 2 PR-D so the "mandatory" quartile
+  golden test (`computeQuartileCutoffs` + `bucketForCell`) has a runner
+  to land into. `vitest@^4.1.7` devDep + minimal `vitest.config.ts`
+  (node env, `@/*` alias mirroring tsconfig, `lib/**/*.test.ts` glob);
+  `npm test` (one-shot) + `npm run test:watch`. Backfilled 68 golden
+  tests across the four pure-helper modules already shipped:
+  `lib/collapse.test.ts` (15), `lib/sort.test.ts` (25),
+  `lib/format.test.ts` (19), `lib/ratio-order.test.ts` (9). Codex
+  round 1 GATE PASS, **0 findings** (second consecutive PR this Sprint
+  to clear codex on round 1, after PR #14). Codex also re-ran
+  `npx tsc --noEmit` during review (succeeded in 1878ms) so strict
+  mode passes against the new test files.
 - **PR #14 (Sprint 2 PR-C) merged at `04fcfbd`.** Ratio category
   collapse/expand. Section header rows are now `<button>` click targets
   that toggle visibility of the data rows under that category. URL state
@@ -98,14 +111,94 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 85 passing** (unchanged across PR-A, PR-B, PR-C — all
-  three were JS/TS only, no Python value-path code touched).
-- **Working tree:** on `main` @ `04fcfbd`, clean. Feature branches
+- **Test count: 85 pytest + 68 vitest.** Python suite unchanged across
+  PR-A through PR-C and PR #15 — none touched the value path. Vitest
+  is the first JS test runner in `web/`; suite covers the four pure
+  helpers (`collapse.ts`, `sort.ts`, `format.ts`, `ratio-order.ts`)
+  shipped in PRs #1 / A / B / C.
+- **Working tree:** on `main` @ `ef4b45c`, clean. Feature branches
   `phase-2-cross-quarter-recompute`, `phase-2-restatement-tooltip`,
-  `phase-2-per-peer-sort`, and `phase-2-category-collapse` all deleted
-  on merge.
+  `phase-2-per-peer-sort`, `phase-2-category-collapse`, and
+  `phase-2-web-vitest` all deleted on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15)
+
+### PR #15 — Vitest runner + golden tests for pure helpers (squash-merge `ef4b45c`)
+
+Branch `phase-2-web-vitest`. Single commit `0ea04d3` squashed on merge —
+no codex follow-up commits this round (second consecutive PR this Sprint
+to clear codex on round 1, after PR #14).
+
+**Why this 0-feature PR.** Sprint 2 PR-D (heat map + amber flags) requires
+a **mandatory** golden test on `computeQuartileCutoffs` + `bucketForCell`
+per `~/.claude/plans/zippy-pondering-volcano.md` lines 213-216 (the quartile
+math is brittle to silent direction flips). PRs A/B/C each deferred their
+unit tests for lack of a runner; this PR closes that infra gap once and
+backfills coverage on the four pure-helper modules already shipped, so
+PR-D can ship tested in the established `lib/X.test.ts` pattern.
+
+**Diff (7 files, +1281/-5):**
+
+- `web/package.json` (+2 scripts, +1 devDep) — adds `vitest@^4.1.7` as a
+  devDependency plus `npm test` (one-shot: `vitest run`) and
+  `npm run test:watch` (TDD loop: `vitest`) scripts.
+- `web/package-lock.json` (+779/-3) — vitest dep tree (vite, rollup,
+  picocolors, etc., all dev-only).
+- `web/vitest.config.ts` (+14, new) — minimal config: `environment: "node"`
+  (no DOM needed for these helpers), `include: ["lib/**/*.test.ts"]` glob,
+  manual `@/*` alias to `./` mirroring tsconfig.json. No `vite-tsconfig-paths`
+  dep added — manual alias keeps the dep footprint single-line.
+- `web/lib/collapse.test.ts` (+118, new) — 15 tests. Covers
+  `parseCollapsedParam` (undefined / empty / single / multi / unknown-slug
+  defense / empty-segment / dedupe), `serializeCollapsedParam` (empty → null,
+  canonical CATEGORY_ORDER independent of insertion order, round-trip with
+  `parseCollapsedParam`), `toggleCategory` (add / remove / immutability /
+  other-entry preservation), and `CATEGORY_ORDER` invariants.
+- `web/lib/sort.test.ts` (+218, new) — 25 tests. Covers
+  `parseSortParam` (10 cases incl. valid asc/desc, unknown cert, bad dir,
+  malformed input, non-numeric cert, missing parts), `serializeSortParam`
+  (null + round-trip), `nextSortState` (4 cycle states), `compareValues`
+  (nulls-always-last in both directions), and `sortWithinSections`
+  (7 cases: section barriers, asc/desc within sections, nulls-last
+  invariant, stable-sort preservation, empty section, empty list, buffer
+  flush for data rows before any section).
+- `web/lib/format.test.ts` (+80, new) — 19 tests. Covers `formatRatio`
+  (null/undefined/NaN/Infinity → em-dash; positive → percent; zero → 0.00%;
+  parentheses-negatives, no minus signs per `docs/design.md`;
+  two-decimal rounding), `formatFactValue` (US thousands separator,
+  parentheses-negatives, fractional rounding to whole numbers), and
+  `formatReportDate` (ISO date passthrough; timestamp trimmed to date).
+- `web/lib/ratio-order.test.ts` (+57, new) — 9 tests. Asserts
+  `CATEGORY_ORDER` is exactly the 7 analyst-facing categories in the
+  specified order, `CATEGORY_LABELS` is 1:1 with `CATEGORY_ORDER`,
+  `RATIO_ORDER` has 30 entries with no duplicates and uses post-CECL
+  `acl_*` (never `alll_*`).
+
+**Codex round-trip:**
+
+- Round 1 (`0ea04d3`): GATE PASS, **0 findings**. Codex verbatim:
+  *"The branch only adds Vitest setup and unit tests for existing pure
+  helpers. I did not find any discrete regression or configuration issue
+  in the changed files."* Codex additionally ran `npx tsc --noEmit`
+  against `web/` during review (succeeded in 1878ms) so strict mode
+  type-checks the new test files cleanly.
+
+**Verification on merge:** 68/68 vitest pass (cold ~220ms). 85/85 pytest
+unchanged. `npm run lint` 0 errors, 1 warning (pre-existing TanStack memo
+warning at `ratio-matrix.tsx:224`). `npm run build` clean Turbopack
+compile + Sentry source-map upload. No runtime behavior change; no
+dashboard route touched; no Vercel env vars affected.
+
+**Out of scope (intentional):**
+
+- jsdom / React component testing — helpers are framework-free; add
+  `jsdom` only when a component test is needed (e.g. `ratio-matrix.tsx`
+  interactions).
+- `lib/queries.ts` / `lib/supabase.ts` — Supabase-bound, not pure;
+  testing requires either a mock client or a hermetic test DB. Out of
+  scope for a setup PR.
+
+
 
 ### PR #14 — Sprint 2 PR-C: ratio category collapse/expand (squash-merge `04fcfbd`)
 
@@ -509,7 +602,10 @@ Vercel rebuild succeeded; prod URL HTTP 200, **573 ms TTFB**
 Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.
 Five atomic PRs in order A → B → C → D → E. PR-A, PR-B, and PR-C
 landed today; PR-D and PR-E remain. Cross-quarter recompute (originally
-item g) already merged via PR #11 and is excluded from the plan.
+item g) already merged via PR #11 and is excluded from the plan. The
+JS test-runner infrastructure called out as a PR-D pre-req shipped as
+PR #15 (out-of-band 0-feature setup PR), so PR-D's mandatory golden
+test no longer blocks on infra.
 
 - ~~**PR-A** Restatement tooltip~~ **Closed by PR #12 @ `80d2b58`.**
   Hover on `r` superscript reveals "Was X, now Y (restated YYYY-MM-DD)"
@@ -539,7 +635,10 @@ item g) already merged via PR #11 and is excluded from the plan.
   cutoffs exclude `data_quality === 'suppressed'` cells. `cre_rbc`
   36-month growth gate **deferred** to Phase 4 with a footnote ("Growth
   gate not yet wired — see SR 07-1 §III.A") to preserve the "no formula
-  logic in TS" rule.
+  logic in TS" rule. **Mandatory unit test** (now unblocked by PR #15's
+  Vitest runner): golden test for `computeQuartileCutoffs` +
+  `bucketForCell` — file path `web/lib/heatmap.test.ts` per the
+  established pattern.
 - **PR-E** Per-ratio drilldown at `/ratio/[ratio_id]`. 8-quarter
   Recharts `LineChart` + ScatterChart strip plot (not box plot — N=5
   peers is statistically thin). Add `recharts` (~90 KB gzipped) only to
@@ -593,17 +692,20 @@ item g) already merged via PR #11 and is excluded from the plan.
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PR-#14 — Sprint 2 PR-C landed
+#   <new HANDOFF commit>  docs(handoff): post-PR-#15 — Vitest landed, PR-D unblocked
+#   ef4b45c  chore(web): add Vitest runner + golden tests for pure helpers (#15)
+#   38e2e4d  docs(handoff): post-PR-#14 — Sprint 2 PR-C landed
 #   04fcfbd  feat(web): ratio category collapse/expand (Sprint 2 PR-C) (#14)
 #   37818f2  docs(handoff): post-PR-#13 — Sprint 2 PR-B landed
 #   df6d80d  feat(web): per-peer column sort (Sprint 2 PR-B) (#13)
 #   2e5dbc7  docs(handoff): post-PR-#12 — Sprint 2 PR-A landed
 #   80d2b58  feat(web): restatement tooltip on `r` superscript (Sprint 2 PR-A) (#12)
-#   124852d  docs(handoff): post-PR-#11 — cross-quarter recompute closed
-#   a0cfbdd  fix(ingest): forward-quarter flip for f.avg consumers (codex P2 from PR #1) (#11)
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 85 passed
+
+cd web && npm test 2>&1 | tail -5
+# Expect: Test Files 4 passed (4), Tests 68 passed (68).
 
 cd web && npm run lint 2>&1 | tail -3
 # Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:224).
@@ -631,7 +733,7 @@ in Vercel (`peerbench-web` project, Production + Preview scopes).
 
 ```bash
 # Python pipeline
-uv run pytest                                       # 78 tests
+uv run pytest                                       # 85 tests
 uv run peerbench info                               # 30 handlers, 65 field codes
 uv run peerbench ingest --cert 4063 --quarters 1    # FDIC API
 uv run peerbench compute --cert 4063 --quarters 1   # compute ratios
@@ -640,6 +742,8 @@ uv run peerbench export-field-deps                  # regenerate handler→field
 
 # Dashboard (local)
 cd web && npm install && npm run dev                # http://localhost:3000
+cd web && npm test                                  # 68 vitest unit tests (one-shot)
+cd web && npm run test:watch                        # vitest TDD loop
 
 # Dashboard (production)
 open https://peerbench-web.vercel.app/
@@ -771,7 +875,10 @@ on each of those days. Once the third lands, Phase 3 is DoD-complete.
 
 **Active: Phase 2 Sprint 2 PR-D (heat map + amber flags).** The Sprint
 2 plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
-through PR-C have all landed (#12 / #13 / #14); the next chunk is PR-D.
+through PR-C have all landed (#12 / #13 / #14), and PR #15 landed the
+JS test-runner infrastructure (Vitest + 68 golden tests on existing
+helpers) so PR-D's mandatory unit test no longer blocks on infra. The
+next chunk is PR-D in earnest.
 
 PR-D scope (from the plan, lines 163-232):
 
@@ -792,19 +899,18 @@ PR-D scope (from the plan, lines 163-232):
   `cre_rbc_growth_36mo` as a pipeline ratio in Phase 4.
 - Heavy visual diff — plan suggests running `design-critic` sub-agent
   in parallel with `/codex review` for this PR.
-- Mandatory unit test (per the plan, the only one in Sprint 2 with this
-  bar): golden test for `computeQuartileCutoffs` + `bucketForCell` —
-  5 values × 3 directions × one suppressed-cell case → expected bucket
-  per case. **This will require a JS test runner in `web/`** (none has
-  landed yet; previous PRs A/B/C deferred their unit tests for the
-  same reason). Decision point at the start of PR-D: either land the
-  test runner first as a 0-feature PR, or defer the golden test to a
-  follow-up. The plan recommends landing the runner — the helper math
-  is direction-flip brittle.
+- **Mandatory unit test** (per the plan, the only one in Sprint 2 with
+  this bar — and now unblocked by PR #15): golden test for
+  `computeQuartileCutoffs` + `bucketForCell` — 5 values × 3 directions
+  × one suppressed-cell case → expected bucket per case. File path
+  `web/lib/heatmap.test.ts` per the established Vitest pattern.
 
-Branch `phase-2-heatmap-amber-flags`. Same flow as PR-C: implement,
-local verify, push, open PR, `/codex review` gate (plus `design-critic`
-sub-agent for visual diff), fix P1/P2s on the same branch, squash-merge.
+Branch `phase-2-heatmap-amber-flags`. Same flow as PR-C: implement
+helpers + tests (TDD-style via `npm run test:watch`), wire into
+`ratio-matrix.tsx`, local verify (`npm test` + `npm run build` +
+`npm run lint` + `uv run pytest`), push, open PR, `/codex review` gate
+(plus `design-critic` sub-agent for visual diff), fix P1/P2s on the
+same branch, squash-merge.
 
 Sprint 2 PR sequence after PR-D: PR-E (drilldown route at
 `/ratio/[ratio_id]`, 8-quarter trend chart + strip plot via Recharts).
