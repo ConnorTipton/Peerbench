@@ -22,7 +22,7 @@ export default async function HomePage({
       : DEFAULT_ANCHOR_CERT;
 
   return (
-    <main className="flex h-screen flex-col px-6 py-6">
+    <main className="flex h-dvh flex-col px-6 py-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
         <h1 className="text-page-title font-semibold text-primary">Peerbench</h1>
         <span className="text-body text-text-secondary">
