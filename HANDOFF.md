@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A + PR-B landed)
+# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A + PR-B + PR-C landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -12,6 +12,25 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
   design decisions confirmed: shadcn/Radix Tooltip primitive, defer the
   `cre_rbc` 36-month growth gate with a footnote (Phase 4 follow-up to
   ship `cre_rbc_growth_36mo` as a pipeline ratio), 5-atomic-PR chunking.
+- **PR #14 (Sprint 2 PR-C) merged at `04fcfbd`.** Ratio category
+  collapse/expand. Section header rows are now `<button>` click targets
+  that toggle visibility of the data rows under that category. URL state
+  via `?collapsed=cat1,cat2` (canonical `CATEGORY_ORDER` serialization),
+  parsed server-side in `app/page.tsx` so deep links render in the right
+  collapsed state with no hydration flicker; client updates via
+  `router.replace` + `useTransition`. Pure helpers live in
+  `web/lib/collapse.ts` (`parseCollapsedParam`, `serializeCollapsedParam`,
+  `toggleCategory`). **Sort + collapse interaction** (design decision
+  locked at the start of the chunk): sort runs over ALL data rows
+  including hidden ones, so re-expanding a collapsed section shows its
+  rows already in the active sort order — no jump or re-sort flicker.
+  Collapse is therefore a pure render-time filter applied AFTER
+  `sortWithinSections`. Chevron is `▾` (expanded) / `▸` (collapsed) in
+  `text-text-tertiary`, button has `aria-expanded` + descriptive
+  `aria-label`. Codex round 1 GATE PASS, **0 findings** (first PR-X this
+  Sprint to clear codex without a follow-up commit). Live on prod —
+  `?collapsed=profitability,yields` returns HTTP 200; `?collapsed=foo`
+  (invalid category) gracefully ignored, HTTP 200.
 - **PR #13 (Sprint 2 PR-B) merged at `df6d80d`.** Per-peer column sort.
   Clicking a peer column header sorts ratio rows by that peer's value,
   cycling **asc → desc → none**; section dividers act as barriers (sort
@@ -79,13 +98,73 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 85 passing** (unchanged across PR-A and PR-B — both
-  were JS/TS only, no Python value-path code touched).
-- **Working tree:** on `main` @ `df6d80d`, clean. Feature branches
-  `phase-2-cross-quarter-recompute`, `phase-2-restatement-tooltip`, and
-  `phase-2-per-peer-sort` all deleted on merge.
+- **Test count: 85 passing** (unchanged across PR-A, PR-B, PR-C — all
+  three were JS/TS only, no Python value-path code touched).
+- **Working tree:** on `main` @ `04fcfbd`, clean. Feature branches
+  `phase-2-cross-quarter-recompute`, `phase-2-restatement-tooltip`,
+  `phase-2-per-peer-sort`, and `phase-2-category-collapse` all deleted
+  on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14)
+
+### PR #14 — Sprint 2 PR-C: ratio category collapse/expand (squash-merge `04fcfbd`)
+
+Branch `phase-2-category-collapse`. Single commit `3e6a58d` squashed on
+merge — no codex follow-up commits this round (first PR-X this Sprint to
+clear codex on round 1).
+
+**Diff (4 files, +158/-7):**
+
+- `web/lib/collapse.ts` (+56, new) — pure helpers + canonical-order
+  serializer. `parseCollapsedParam` validates against
+  `CATEGORY_ORDER` and silently drops unknown slugs (defensive against
+  URL hand-edits). `serializeCollapsedParam` joins in `CATEGORY_ORDER`
+  so URLs are stable regardless of toggle order. `toggleCategory`
+  returns a new `Set` (immutable update).
+- `web/components/ratio-matrix.tsx` (+94/-3) — adds `collapsed` state
+  via `useState(initialCollapsed)` + URL sync via `router.replace` /
+  `useTransition` (mirrors the sort plumbing landed in PR-B). `useEffect`
+  resyncs local state when server-derived `initialCollapsed` changes on
+  back/forward nav, compared by canonical-string serialization so a
+  referentially-new `Set` with identical members is a no-op (avoids the
+  PR-B P2-A failure mode). New `visibleRows` `useMemo` filters
+  `sortedRows` after sort — section rows always render; data rows hidden
+  if their `r.def.category` is in the `collapsed` set. New
+  `SectionToggle` component renders the section row as a `<button
+  type="button">` inside the existing `<td colSpan>` (padding moved from
+  td to button so the entire row is the hit target); `aria-expanded` +
+  descriptive `aria-label`; chevron `▾` / `▸` in `text-text-tertiary`
+  per design token; focus ring matches `SortHeader` and tooltip trigger.
+- `web/app/page.tsx` (+12/-1) — `SearchParams` gains `collapsed?: string
+  | string[]`; `firstParam(collapsed)` normalizes (the PR-B P2-B
+  hardening pattern); threaded as `initialCollapsed` to
+  `<RatioMatrix>`. Hydration-safe.
+- `web/components/anchor-select.tsx` (+3, comment-only) — three-line
+  comment documenting the `URLSearchParams` copy-then-set pattern that
+  `ratio-matrix.tsx` reuses. Plan called this out so future authors can
+  find prior art.
+
+**Codex round-trip:**
+
+- Round 1 (`3e6a58d`): GATE PASS, **0 findings**. Codex verbatim: *"No
+  correctness issues were found in the reviewed diff. The collapse
+  state parsing, URL synchronization, and row filtering appear
+  consistent with the existing sort behavior."*
+
+**Verification on merge:** 85/85 tests pass. `npm run lint` 0 errors,
+1 warning (pre-existing TanStack memo warning at `ratio-matrix.tsx:224`,
+line number shifted from 174 → 224 as the new hooks were added).
+`npm run build` clean Turbopack compile + Sentry source-map upload.
+Vercel rebuild succeeded; prod URL HTTP 200 on `/`,
+`/?collapsed=profitability,yields`, and `/?collapsed=foo` (invalid
+category, gracefully ignored). Cold TTFB 286 ms.
+
+**Plan-file review report:** logged via `gstack-review-log`; absorbed
+into the `## GSTACK REVIEW REPORT` table in
+`~/.claude/plans/zippy-pondering-volcano.md` (5 codex runs across
+PR-A → PR-C, all CLEAR; 4 findings total, 4/4 fixed; PR-C contributed 0).
+
+
 
 ### PR #13 — Sprint 2 PR-B: per-peer column sort (squash-merge `df6d80d`)
 
@@ -428,9 +507,9 @@ Vercel rebuild succeeded; prod URL HTTP 200, **573 ms TTFB**
 ### Phase 2 — Sprint 2 (in flight)
 
 Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.
-Five atomic PRs in order A → B → C → D → E. PR-A and PR-B landed today;
-PR-C through PR-E remain. Cross-quarter recompute (originally item g)
-already merged via PR #11 and is excluded from the plan.
+Five atomic PRs in order A → B → C → D → E. PR-A, PR-B, and PR-C
+landed today; PR-D and PR-E remain. Cross-quarter recompute (originally
+item g) already merged via PR #11 and is excluded from the plan.
 
 - ~~**PR-A** Restatement tooltip~~ **Closed by PR #12 @ `80d2b58`.**
   Hover on `r` superscript reveals "Was X, now Y (restated YYYY-MM-DD)"
@@ -445,9 +524,14 @@ already merged via PR #11 and is excluded from the plan.
   branch (commit `365575d`): URL-change resync via `useEffect` keyed
   on primitive cert/dir, and `string | string[]` boundary
   normalization in `app/page.tsx`.
-- **PR-C** Ratio category collapse/expand. Section header rows as click
-  targets; `?collapsed=cat1,cat2` URL params; server-side parse in
-  `page.tsx` (matches the existing `?anchor=` precedent).
+- ~~**PR-C** Ratio category collapse/expand~~ **Closed by PR #14 @
+  `04fcfbd`.** Section header rows are `<button>` toggles with
+  `aria-expanded` + chevron (`▾` / `▸`); URL state via
+  `?collapsed=cat1,cat2`; server-side parse in `app/page.tsx`. Sort
+  runs over ALL rows so re-expanding a collapsed section shows its
+  rows already in the active sort order (locked design choice).
+  Pure helpers in `web/lib/collapse.ts`. Codex round 1 GATE PASS, 0
+  findings (first PR-X this Sprint to clear codex on round 1).
 - **PR-D** Conditional formatting heat map (items e + f bundled —
   both compete for cell background). New files `web/lib/heatmap.ts`,
   `web/lib/heatmap-directions.ts`, `web/lib/regulatory-thresholds.ts`.
@@ -509,20 +593,20 @@ already merged via PR #11 and is excluded from the plan.
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PR-#13 — Sprint 2 PR-B landed
+#   <new HANDOFF commit>  docs(handoff): post-PR-#14 — Sprint 2 PR-C landed
+#   04fcfbd  feat(web): ratio category collapse/expand (Sprint 2 PR-C) (#14)
+#   37818f2  docs(handoff): post-PR-#13 — Sprint 2 PR-B landed
 #   df6d80d  feat(web): per-peer column sort (Sprint 2 PR-B) (#13)
 #   2e5dbc7  docs(handoff): post-PR-#12 — Sprint 2 PR-A landed
 #   80d2b58  feat(web): restatement tooltip on `r` superscript (Sprint 2 PR-A) (#12)
 #   124852d  docs(handoff): post-PR-#11 — cross-quarter recompute closed
 #   a0cfbdd  fix(ingest): forward-quarter flip for f.avg consumers (codex P2 from PR #1) (#11)
-#   0f0f010  docs(handoff): post-PRs-#9/#10 — Sprint 2 next
-#   14a7a13  fix(web): h-dvh viewport + remove section row double border (#10)
 
 cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 85 passed
 
 cd web && npm run lint 2>&1 | tail -3
-# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:174).
+# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:224).
 
 cd web && npm run build 2>&1 | tail -8
 # Expect: clean Turbopack compile. If SENTRY_AUTH_TOKEN is set,
@@ -685,38 +769,48 @@ and 2026-05-24 ~03:00 UTC (free-tier delay of a few hours is normal). No
 action required — check `gh run list --workflow=daily-ingest.yml --limit 5`
 on each of those days. Once the third lands, Phase 3 is DoD-complete.
 
-**Active: Phase 2 Sprint 2 PR-C (ratio category collapse/expand).** The
-Sprint 2 plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`.
-PR-A landed earlier (PR #12); PR-B landed today (PR #13); the next chunk
-is PR-C.
+**Active: Phase 2 Sprint 2 PR-D (heat map + amber flags).** The Sprint
+2 plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
+through PR-C have all landed (#12 / #13 / #14); the next chunk is PR-D.
 
-PR-C scope (from the plan, lines 129-161):
+PR-D scope (from the plan, lines 163-232):
 
-- `web/components/ratio-matrix.tsx` — section header rows become click
-  targets that toggle the corresponding category's data rows in/out
-  of the rendered set. URL search params `?collapsed=cat1,cat2`,
-  server-side parse in `app/page.tsx` (matches the existing `?anchor=`
-  and `?sort=` precedents from PR-B).
-- Persist collapsed state same way PR-B persisted sort state:
-  `useState` + `useEffect` resync on prop change for back/forward nav,
-  `router.replace` + `useTransition` on click.
-- Visual: the section row's existing label keeps its `text-section-
-  header font-semibold uppercase` styling; add a small chevron
-  indicator (`▾` / `▸`) and `aria-expanded` for accessibility. Keep
-  the section row clickable as a `<button>` wrapping the existing
-  `<td colSpan>` content so the entire row is a hit target.
-- Edge case: ensure sort still works when a category is collapsed
-  (sort scope shouldn't include hidden rows, but the section's data
-  rows when re-expanded should still be in the right sorted order).
+- New files `web/lib/heatmap.ts`, `web/lib/heatmap-directions.ts`,
+  `web/lib/regulatory-thresholds.ts` (pure helpers; framework-free per
+  the established Sprint 2 pattern from `lib/sort.ts` and
+  `lib/collapse.ts`).
+- Quartile-based heat-map tint per cell (cell background varies with
+  position in the peer-tier distribution); honor `docs/design.md`
+  "300% amber, 400% red" CRE two-tier; quartile cutoffs MUST exclude
+  `data_quality === 'suppressed'` cells (they don't carry signal).
+- Amber-flag tooltip on regulatory-threshold cells — **reuse PR-A's
+  Radix Tooltip primitive** at `web/components/ui/tooltip.tsx` for the
+  source-citation tooltip ("SR 07-1 §III.A", etc.). No new dependency.
+- `cre_rbc` 36-month growth gate **deferred** to Phase 4 with a
+  footnote ("Growth gate not yet wired — see SR 07-1 §III.A") to
+  preserve the "no formula logic in TS" rule. Plan calls for shipping
+  `cre_rbc_growth_36mo` as a pipeline ratio in Phase 4.
+- Heavy visual diff — plan suggests running `design-critic` sub-agent
+  in parallel with `/codex review` for this PR.
+- Mandatory unit test (per the plan, the only one in Sprint 2 with this
+  bar): golden test for `computeQuartileCutoffs` + `bucketForCell` —
+  5 values × 3 directions × one suppressed-cell case → expected bucket
+  per case. **This will require a JS test runner in `web/`** (none has
+  landed yet; previous PRs A/B/C deferred their unit tests for the
+  same reason). Decision point at the start of PR-D: either land the
+  test runner first as a 0-feature PR, or defer the golden test to a
+  follow-up. The plan recommends landing the runner — the helper math
+  is direction-flip brittle.
 
-Branch `phase-2-category-collapse`. Same flow as PR-B: implement, local
-verify (`uv run pytest`, `npm run lint`, `npm run build`), push, open PR,
-`/codex review` gate, fix P1/P2s on the same branch, squash-merge.
+Branch `phase-2-heatmap-amber-flags`. Same flow as PR-C: implement,
+local verify, push, open PR, `/codex review` gate (plus `design-critic`
+sub-agent for visual diff), fix P1/P2s on the same branch, squash-merge.
 
-Sprint 2 PR sequence after PR-C: PR-D (heat map + amber flags) → PR-E
-(drilldown route). PR-A's hand-written Radix Tooltip wrapper at
-`web/components/ui/tooltip.tsx` is the primitive PR-D will reuse for
-amber-flag regulatory citations — no shadcn re-init needed.
+Sprint 2 PR sequence after PR-D: PR-E (drilldown route at
+`/ratio/[ratio_id]`, 8-quarter trend chart + strip plot via Recharts).
+PR-E is the only PR that adds a runtime dependency (`recharts`, ~90 KB
+gzipped) — make sure `next build` confirms `recharts` is bundled only
+into the `/ratio/[id]` chunk, not the matrix page.
 
 Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
 Excel export + banking design pass + README/Loom) is the only thing left.
