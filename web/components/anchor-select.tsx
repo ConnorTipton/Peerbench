@@ -17,6 +17,9 @@ export function AnchorSelect({ institutions, anchorCert }: Props) {
 
   function onChange(event: React.ChangeEvent<HTMLSelectElement>) {
     const next = event.target.value;
+    // URL copy-then-set: clone current params, mutate the one we own, replace
+    // the URL. Preserves orthogonal params (?sort=, ?collapsed=, …) without
+    // each control needing to know about the others. Reused by ratio-matrix.tsx.
     const params = new URLSearchParams(searchParams);
     params.set("anchor", next);
     startTransition(() => {

@@ -27,6 +27,10 @@ import {
   type SortState,
 } from "@/lib/sort";
 import {
+  serializeCollapsedParam,
+  toggleCategory,
+} from "@/lib/collapse";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -54,6 +58,7 @@ type Props = {
   restatedDetails: Map<string, RestatedDetail>;
   anchorCert: number;
   initialSort: SortState;
+  initialCollapsed: ReadonlySet<RatioCategory>;
 };
 
 const DATA_QUALITY_LABEL: Record<MatrixCell["data_quality"], string> = {
@@ -70,8 +75,11 @@ export function RatioMatrix({
   restatedDetails,
   anchorCert,
   initialSort,
+  initialCollapsed,
 }: Props) {
   const [sort, setSort] = useState<SortState>(initialSort);
+  const [collapsed, setCollapsed] =
+    useState<ReadonlySet<RatioCategory>>(initialCollapsed);
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -88,6 +96,19 @@ export function RatioMatrix({
       return initialSort;
     });
   }, [initialSort?.cert, initialSort?.dir, initialSort]);
+
+  // Resync collapsed set on back/forward nav (same shape as the sort resync).
+  // Compared by canonical serialization so a referentially-new Set with the
+  // same members is a no-op.
+  const initialCollapsedSerialized = serializeCollapsedParam(initialCollapsed);
+  useEffect(() => {
+    setCollapsed((prev) => {
+      if (serializeCollapsedParam(prev) === initialCollapsedSerialized) {
+        return prev;
+      }
+      return initialCollapsed;
+    });
+  }, [initialCollapsedSerialized, initialCollapsed]);
 
   const applySort = useCallback(
     (cert: number) => {
@@ -106,6 +127,25 @@ export function RatioMatrix({
       });
     },
     [sort, router, searchParams],
+  );
+
+  const applyCollapse = useCallback(
+    (category: RatioCategory) => {
+      const next = toggleCategory(collapsed, category);
+      setCollapsed(next);
+      const params = new URLSearchParams(searchParams.toString());
+      const serialized = serializeCollapsedParam(next);
+      if (serialized) {
+        params.set("collapsed", serialized);
+      } else {
+        params.delete("collapsed");
+      }
+      const qs = params.toString();
+      startTransition(() => {
+        router.replace(qs ? `?${qs}` : "?", { scroll: false });
+      });
+    },
+    [collapsed, router, searchParams],
   );
 
   const rows: Row[] = useMemo(() => {
@@ -128,6 +168,16 @@ export function RatioMatrix({
       sort.dir,
     );
   }, [rows, sort, cells]);
+
+  // Hide data rows under collapsed categories. Section rows always render
+  // (they're the toggle target). Filter runs AFTER sort, so hidden rows
+  // retain the active sort order and re-expanding shows them in place.
+  const visibleRows = useMemo(() => {
+    if (collapsed.size === 0) return sortedRows;
+    return sortedRows.filter(
+      (r) => r.kind === "section" || !collapsed.has(r.def.category),
+    );
+  }, [sortedRows, collapsed]);
 
   const columns: ColumnDef<Row>[] = useMemo(() => {
     const ratioColumn: ColumnDef<Row> = {
@@ -172,7 +222,7 @@ export function RatioMatrix({
   }, [institutions, cells, restatedDetails, sort, applySort]);
 
   const table = useReactTable({
-    data: sortedRows,
+    data: visibleRows,
     columns,
     getCoreRowModel: getCoreRowModel(),
   });
@@ -223,15 +273,19 @@ export function RatioMatrix({
           {table.getRowModel().rows.map((row, rowIdx) => {
             const r = row.original;
             if (r.kind === "section") {
+              const isCollapsed = collapsed.has(r.category);
+              const label = CATEGORY_LABELS[r.category];
               return (
                 <tr key={row.id}>
                   <td
                     colSpan={columns.length}
-                    className="sticky left-0 p-2 border-b border-border bg-surface-alt"
+                    className="sticky left-0 p-0 border-b border-border bg-surface-alt"
                   >
-                    <span className="text-section-header font-semibold uppercase tracking-wide text-text-secondary">
-                      {CATEGORY_LABELS[r.category]}
-                    </span>
+                    <SectionToggle
+                      label={label}
+                      isCollapsed={isCollapsed}
+                      onClick={() => applyCollapse(r.category)}
+                    />
                   </td>
                 </tr>
               );
@@ -337,6 +391,36 @@ function RestatementTooltipBody({ detail }: { detail: RestatedDetail }) {
         {showThousandsLabel ? " · values in thousands" : ""}
       </div>
     </div>
+  );
+}
+
+function SectionToggle({
+  label,
+  isCollapsed,
+  onClick,
+}: {
+  label: string;
+  isCollapsed: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-expanded={!isCollapsed}
+      aria-label={`${isCollapsed ? "Expand" : "Collapse"} ${label} section`}
+      className="flex w-full cursor-pointer items-baseline gap-2 p-2 text-left focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-block w-3 text-text-tertiary"
+      >
+        {isCollapsed ? "▸" : "▾"}
+      </span>
+      <span className="text-section-header font-semibold uppercase tracking-wide text-text-secondary">
+        {label}
+      </span>
+    </button>
   );
 }
 

@@ -1,5 +1,6 @@
 import { AnchorSelect } from "@/components/anchor-select";
 import { RatioMatrix } from "@/components/ratio-matrix";
+import { parseCollapsedParam } from "@/lib/collapse";
 import { formatReportDate } from "@/lib/format";
 import { getMatrixData } from "@/lib/queries";
 import { parseSortParam } from "@/lib/sort";
@@ -9,7 +10,11 @@ const DEFAULT_ANCHOR_CERT = 4063; // MidFirst Bank
 // Next.js represents repeated query-string keys as `string[]`. Acknowledge
 // that at the type level and normalize to the first value at the boundary —
 // downstream parsers stay pure (string | undefined).
-type SearchParams = { anchor?: string | string[]; sort?: string | string[] };
+type SearchParams = {
+  anchor?: string | string[];
+  sort?: string | string[];
+  collapsed?: string | string[];
+};
 
 function firstParam(raw: string | string[] | undefined): string | undefined {
   if (raw === undefined) return undefined;
@@ -21,7 +26,7 @@ export default async function HomePage({
 }: {
   searchParams: Promise<SearchParams>;
 }) {
-  const { anchor, sort } = await searchParams;
+  const { anchor, sort, collapsed } = await searchParams;
   const data = await getMatrixData();
 
   const anchorRaw = firstParam(anchor);
@@ -35,6 +40,8 @@ export default async function HomePage({
     firstParam(sort),
     data.institutions.map((i) => i.cert),
   );
+
+  const initialCollapsed = parseCollapsedParam(firstParam(collapsed));
 
   return (
     <main className="flex h-dvh flex-col px-6 py-6">
@@ -54,6 +61,7 @@ export default async function HomePage({
         restatedDetails={data.restatedDetails}
         anchorCert={anchorCert}
         initialSort={initialSort}
+        initialCollapsed={initialCollapsed}
       />
     </main>
   );
