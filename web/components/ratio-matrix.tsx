@@ -109,7 +109,7 @@ export function RatioMatrix({
   const table = useReactTable({ data: rows, columns, getCoreRowModel: getCoreRowModel() });
 
   return (
-    <div className="flex-1 overflow-auto border border-border">
+    <div className="flex-1 min-h-0 overflow-auto border border-border">
       <table className="border-separate border-spacing-0 w-full">
         <thead className="bg-surface">
           {table.getHeaderGroups().map((hg) => (
@@ -149,7 +149,7 @@ export function RatioMatrix({
                 <tr key={row.id}>
                   <td
                     colSpan={columns.length}
-                    className="sticky left-0 p-2 border-y border-border bg-surface-alt"
+                    className="sticky left-0 p-2 border-b border-border bg-surface-alt"
                   >
                     <span className="text-section-header font-semibold uppercase tracking-wide text-text-secondary">
                       {CATEGORY_LABELS[r.category]}
