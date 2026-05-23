@@ -7,6 +7,7 @@ import {
   type ColumnDef,
   type RowData,
 } from "@tanstack/react-table";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 
@@ -98,6 +99,13 @@ export function RatioMatrix({
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
+
+  // Forward `?anchor=` into drilldown links so the user's selection survives
+  // the navigation — without this, opening any ratio from a non-default
+  // anchor view loses the selection and the drilldown re-pins to MidFirst.
+  // Sort + collapsed are intentionally NOT forwarded — they're matrix-only
+  // concerns and have no meaning on the per-ratio drilldown.
+  const anchorParam = searchParams.get("anchor");
 
   // Resync local sort when the server-derived initialSort changes (e.g. user
   // hits back/forward, or another control rewrites `?sort=`). Compared on
@@ -230,10 +238,16 @@ export function RatioMatrix({
             </span>
           );
         }
+        const drilldownHref = anchorParam
+          ? `/ratio/${r.def.ratio_id}?anchor=${encodeURIComponent(anchorParam)}`
+          : `/ratio/${r.def.ratio_id}`;
         return (
-          <span className="text-table-data text-text">
+          <Link
+            href={drilldownHref}
+            className="rounded-sm text-table-data text-text underline decoration-transparent decoration-1 underline-offset-2 transition-colors duration-200 ease-in-out hover:text-accent hover:decoration-accent focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+          >
             {r.def.display_name}
-          </span>
+          </Link>
         );
       },
     };
@@ -286,7 +300,7 @@ export function RatioMatrix({
       },
     }));
     return [ratioColumn, ...peerColumns];
-  }, [institutions, cells, restatedDetails, cutoffsByRatio, anchorCert, sort, applySort]);
+  }, [institutions, cells, restatedDetails, cutoffsByRatio, anchorCert, sort, applySort, anchorParam]);
 
   const table = useReactTable({
     data: visibleRows,

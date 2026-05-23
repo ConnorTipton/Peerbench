@@ -4,12 +4,14 @@ import { createServerSupabase } from "@/lib/supabase";
 import {
   cellKey,
   restatementKey,
+  timeSeriesPointKey,
   type MatrixCell,
   type RatioGroup,
   type RestatedDetail,
 } from "@/lib/matrix-types";
 import { CATEGORY_ORDER, RATIO_ORDER } from "@/lib/ratio-order";
 import ratioFieldDeps from "@/lib/ratio-field-deps.generated.json";
+import { selectRecentQuarterIds } from "@/lib/ratio-series";
 import type {
   Institution,
   Quarter,
@@ -56,6 +58,17 @@ export type MatrixData = {
    */
   restatedDetails: Map<string, RestatedDetail>;
 };
+
+export type RatioSeries = {
+  ratioDef: RatioDef;
+  /** Ascending by report_date — chart x-axis order. */
+  quarters: Quarter[];
+  /** Active peers, anchor first (matches `getMatrixData` ordering). */
+  institutions: Institution[];
+  /** Keyed `${cert}|${quarter_id}` — same MatrixCell shape as the matrix. */
+  values: Map<string, MatrixCell>;
+};
+
 
 /**
  * Loads everything needed to render the most-recent-quarter matrix.
@@ -139,6 +152,106 @@ export async function getMatrixData(): Promise<MatrixData> {
   }
 
   return { quarter, institutions, ratioGroups, cells, restatedDetails };
+}
+
+/**
+ * 8-quarter trend for a single ratio across all active peers.
+ *
+ * Returns null when `ratioId` is not in `ratio_defs` — the route handler
+ * uses that signal to call `notFound()`. The quarter window is the last
+ * 8 calendar quarters with at least one computed `ratios` row (mirrors
+ * `getMatrixData`'s anchoring to avoid pointing at an empty fresh quarter).
+ *
+ * Quarters that lack a row for a given (cert, ratio) emit no MatrixCell
+ * entry — the chart renders a gap, which is the honest read for a
+ * "partial" or pre-ingest history point. Ratios with `data_quality !== 'ok'`
+ * keep their entry so the drilldown can surface the quality state per point.
+ */
+export async function getRatioTimeSeries(
+  ratioId: string,
+  windowSize: number = 8,
+): Promise<RatioSeries | null> {
+  const supabase = await createServerSupabase();
+
+  const defRes = await supabase
+    .from("ratio_defs")
+    .select("*")
+    .eq("ratio_id", ratioId)
+    .maybeSingle();
+  if (defRes.error) throw defRes.error;
+  if (!defRes.data) return null;
+  const ratioDef = defRes.data as RatioDef;
+
+  // Pull (a) all distinct quarter_ids that have at least one row for THIS
+  // ratio (newest first; take the top `windowSize`) and (b) the active peer
+  // set in parallel — institutions are orthogonal to quarter discovery and
+  // must always be returned. Returning `institutions: []` on the empty-data
+  // branch (e.g. `top_loan_cat`, where the handler raises NotImplementedError
+  // so the ratio has no `ratios` rows) silently broke the drilldown's
+  // anchor validation: any valid `?anchor=` would fail membership and the
+  // back-link to the matrix would drop the user's selection.
+  //
+  // Anchoring quarter discovery on `ratios` (not `quarters`) is the same
+  // correctness argument as `getMatrixData`: an ingest that wrote a
+  // `quarters` row before compute populated it would surface as a
+  // freshly-empty quarter at the right edge of the trend chart.
+  const [ratioQuartersRes, institutionsRes] = await Promise.all([
+    supabase
+      .from("ratios")
+      .select("quarter_id")
+      .eq("ratio_id", ratioId)
+      .order("quarter_id", { ascending: false }),
+    supabase.from("institutions").select("*").eq("active", true),
+  ]);
+  if (ratioQuartersRes.error) throw ratioQuartersRes.error;
+  if (institutionsRes.error) throw institutionsRes.error;
+  // Stream is already DESC-ordered by the .order(...) clause above; pull the
+  // first `windowSize` distinct quarter_ids (one row per (cert, quarter) so
+  // the same quarter_id repeats up to peer-count times).
+  const recentQuarterIds = selectRecentQuarterIds(
+    ratioQuartersRes.data as { quarter_id: string }[],
+    windowSize,
+  );
+  const institutions = sortInstitutions(institutionsRes.data as Institution[]);
+
+  if (recentQuarterIds.length === 0) {
+    // Ratio is registered but has never produced a row — render an empty
+    // state. Institutions are still returned so anchor validation in the
+    // route handler accepts any active peer's cert.
+    return {
+      ratioDef,
+      quarters: [],
+      institutions,
+      values: new Map(),
+    };
+  }
+
+  const [quartersRes, ratiosRes] = await Promise.all([
+    supabase
+      .from("quarters")
+      .select("*")
+      .in("quarter_id", recentQuarterIds)
+      .order("report_date", { ascending: true }),
+    supabase
+      .from("ratios")
+      .select("*")
+      .eq("ratio_id", ratioId)
+      .in("quarter_id", recentQuarterIds),
+  ]);
+  if (quartersRes.error) throw quartersRes.error;
+  if (ratiosRes.error) throw ratiosRes.error;
+
+  const quarters = quartersRes.data as Quarter[];
+
+  const values = new Map<string, MatrixCell>();
+  for (const row of ratiosRes.data as RatioValue[]) {
+    values.set(timeSeriesPointKey(row.cert, row.quarter_id), {
+      value: row.value === null ? null : Number(row.value),
+      data_quality: row.data_quality,
+    });
+  }
+
+  return { ratioDef, quarters, institutions, values };
 }
 
 function sortInstitutions(rows: Institution[]): Institution[] {
