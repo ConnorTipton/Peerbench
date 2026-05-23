@@ -1,5 +1,6 @@
 import { AnchorSelect } from "@/components/anchor-select";
 import { RatioMatrix } from "@/components/ratio-matrix";
+import { WorkbookDownload } from "@/components/workbook-download";
 import { parseCollapsedParam } from "@/lib/collapse";
 import { formatReportDate } from "@/lib/format";
 import { getMatrixData } from "@/lib/queries";
@@ -47,9 +48,12 @@ export default async function HomePage({
     <main className="flex h-dvh flex-col px-6 py-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
         <h1 className="text-page-title font-semibold text-primary">Peerbench</h1>
-        <span className="text-body text-text-secondary">
-          As of {formatReportDate(data.quarter.report_date)}
-        </span>
+        <div className="flex flex-col items-end gap-1">
+          <span className="text-body text-text-secondary">
+            As of {formatReportDate(data.quarter.report_date)}
+          </span>
+          <WorkbookDownload />
+        </div>
       </header>
       <div className="mb-4">
         <AnchorSelect institutions={data.institutions} anchorCert={anchorCert} />
