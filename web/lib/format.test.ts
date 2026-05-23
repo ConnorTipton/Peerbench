@@ -1,9 +1,10 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   EM_DASH,
   formatFactValue,
   formatRatio,
+  formatRelativeDate,
   formatReportDate,
 } from "@/lib/format";
 
@@ -77,5 +78,38 @@ describe("formatReportDate", () => {
 
   it("trims a timestamp to its date portion", () => {
     expect(formatReportDate("2025-12-31T00:00:00.000Z")).toBe("2025-12-31");
+  });
+});
+
+describe("formatRelativeDate", () => {
+  const NOW = new Date("2026-05-23T12:00:00Z");
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("returns 'today' for a timestamp within the last 24h", () => {
+    expect(formatRelativeDate("2026-05-23T03:00:00Z")).toBe("today");
+  });
+
+  it("returns 'yesterday' for a timestamp 24–48h old", () => {
+    expect(formatRelativeDate("2026-05-22T08:00:00Z")).toBe("yesterday");
+  });
+
+  it("returns 'N days ago' for 2–7 days old", () => {
+    expect(formatRelativeDate("2026-05-20T12:00:00Z")).toBe("3 days ago");
+  });
+
+  it("returns an absolute date for >7 days old", () => {
+    expect(formatRelativeDate("2026-05-10T12:00:00Z")).toBe("on May 10, 2026");
+  });
+
+  it("returns 'today' for a future timestamp (clock skew)", () => {
+    expect(formatRelativeDate("2026-05-24T12:00:00Z")).toBe("today");
   });
 });

@@ -50,3 +50,21 @@ export function formatReportDate(isoDate: string): string {
   // quarters.report_date is a Postgres DATE (UTC midnight); just take the date portion.
   return isoDate.slice(0, 10);
 }
+
+/**
+ * Render an ISO-8601 timestamp as a human-relative phrase for the workbook
+ * download freshness subtitle. Future timestamps (clock skew) clamp to "today".
+ */
+export function formatRelativeDate(iso: string): string {
+  const then = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - then.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (diffMs < dayMs) return "today";
+  if (diffMs < 2 * dayMs) return "yesterday";
+  const days = Math.floor(diffMs / dayMs);
+  if (days <= 7) return `${days} days ago`;
+
+  return `on ${then.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+}
