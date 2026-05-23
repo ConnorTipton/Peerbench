@@ -25,7 +25,9 @@ def test_manifest_shape_from_real_file(workbook_file: Path) -> None:
         public_url_base="https://abc.supabase.co/storage/v1/object/public/peerbench-exports",
     )
     assert set(m.keys()) == {"url", "generated_at", "quarter_id", "anchor_cert", "size_bytes"}
-    assert m["url"] == "https://abc.supabase.co/storage/v1/object/public/peerbench-exports/latest.xlsx"
+    assert (
+        m["url"] == "https://abc.supabase.co/storage/v1/object/public/peerbench-exports/latest.xlsx"
+    )
     assert m["quarter_id"] == "2025-Q4"
     assert m["anchor_cert"] == 4063
 
@@ -59,7 +61,9 @@ def test_manifest_strips_trailing_slash_on_url_base(workbook_file: Path) -> None
         quarter_id="2025-Q4",
         public_url_base="https://abc.supabase.co/storage/v1/object/public/peerbench-exports/",
     )
-    assert m["url"] == "https://abc.supabase.co/storage/v1/object/public/peerbench-exports/latest.xlsx"
+    assert (
+        m["url"] == "https://abc.supabase.co/storage/v1/object/public/peerbench-exports/latest.xlsx"
+    )
 
 
 def test_manifest_passes_through_anchor_and_quarter(workbook_file: Path) -> None:
