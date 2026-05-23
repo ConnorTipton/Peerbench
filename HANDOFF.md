@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A → PR-D + Vitest + design-critic landed)
+# Peerbench — handoff (post-PR-#17 — Sprint 2 PR-F: cell context tooltips landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,12 +6,45 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
+- **PR #17 (Sprint 2 PR-F) merged at `f62db2c`.** Cell context tooltips —
+  every cell whose background is non-default now carries an explainer.
+  Three new tooltip surfaces: (1) focusable `●` superscript on quartile-
+  tinted cells (top → `text-positive`, bottom → `text-negative`),
+  right-of-value slot mirroring PR-A's `r` and PR-D's `△`, 3-line tooltip
+  body (rank in plain English via `describeRank`, value vs peer median via
+  `formatRatio`, generic-per-direction tint explanation); (2) anchor
+  column cert subtitle reads `Anchor · Cert <n>` and is itself a Radix
+  tooltip trigger explaining navy tint = anchor bank; (3) regulatory
+  `△` unchanged. **Layer precedence** holds across both background
+  (`composeCellBg`) and indicator (`quartileIndicatorBucket`) paths —
+  `△` and `●` never coexist on the same cell. New pure helper
+  `web/lib/heatmap-tooltip.ts` (`describeRank`) + 13-case golden test
+  (exhaustive 2 buckets × 2 active directions truth table); `QuartileCutoffs`
+  extended with `median` (Type-7 q2, computed in the existing pass — no
+  second loop). `SortHeader` refactored to drop cert subtitle from the
+  sort button (subtitle is now a sibling element so the anchor column can
+  wrap it in a Radix tooltip). **Codex round 1 GATE PASS, 0 findings**
+  (sixth consecutive PR/chunk this Sprint). **Design-critic PASS, 0
+  blocking, 3 soft:** `●` aria-label upgraded to `rankLine` for better
+  screen-reader signal (fix-on-branch commit `90c3683`), QuartileTooltipBody
+  value/median wrapped in `font-medium` for sibling consistency (same
+  commit). Third soft (existing PR-D-deferred double-compute) stays
+  deferred — PR-F adds no new cost surface. Live on prod at
+  https://peerbench-web.vercel.app/ — Vercel auto-deploy triggered on
+  merge; 39 `●` indicators rendered alongside the 4 `△` from PR-D and
+  5 `r` from PR-A on 2025-Q4 data. Test count: 85 pytest + 134 vitest
+  (+13 cases from PR-F).
 - **Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.**
   Five atomic PRs in order A → B → C → D → E. Item (g) cross-quarter
   recompute is excluded (already merged via PR #11). Three pre-plan
   design decisions confirmed: shadcn/Radix Tooltip primitive, defer the
   `cre_rbc` 36-month growth gate with a footnote (Phase 4 follow-up to
   ship `cre_rbc_growth_36mo` as a pipeline ratio), 5-atomic-PR chunking.
+  **PR-F was a post-plan addition** (cell context tooltips, plan at
+  `~/.claude/plans/you-re-continuing-peerbench-at-valiant-metcalfe.md`)
+  shipped between PR-D and PR-E to close the discoverability gap while
+  the matrix is still the primary view. Sprint 2 PR-E (per-ratio drilldown)
+  remains pending — next up after the calendar gate.
 - **PR #16 (Sprint 2 PR-D) merged at `446a1af`.** Conditional formatting
   heat map + amber/red regulatory flags. Per-ratio quartile cutoffs across
   the visible peer set tint cells `--color-positive` /10 (top quartile) or
@@ -145,19 +178,149 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 85 pytest + 122 vitest.** Python suite unchanged across
-  PR-A through PR-D and PR #15 — none touched the value path. Vitest
-  is the first JS test runner in `web/`; suite now covers seven pure-helper
-  modules (`collapse.ts`, `sort.ts`, `format.ts`, `ratio-order.ts`,
-  `heatmap.ts`, `heatmap-directions.ts`, `regulatory-thresholds.ts`).
-  PR #16 contributed 54 new cases across the three heat-map modules.
-- **Working tree:** on `main` @ `446a1af`, clean. Feature branches
+- **Test count: 85 pytest + 134 vitest.** Python suite unchanged across
+  PR-A through PR-F — none touched the value path. Vitest now covers
+  eight pure-helper modules (the seven from PR #16 plus `heatmap-tooltip.ts`
+  added in PR #17). PR #17 contributed 13 new cases for `describeRank` +
+  the `median` field on `QuartileCutoffs`.
+- **Working tree:** on `main` @ `f62db2c`, clean. Feature branches
   `phase-2-cross-quarter-recompute`, `phase-2-restatement-tooltip`,
   `phase-2-per-peer-sort`, `phase-2-category-collapse`,
-  `phase-2-web-vitest`, and `phase-2-heatmap-amber-flags` all deleted
-  on merge.
+  `phase-2-web-vitest`, `phase-2-heatmap-amber-flags`, and
+  `phase-2-cell-context-tooltips` all deleted on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17)
+
+### PR #17 — Sprint 2 PR-F: cell context tooltips (squash-merge `f62db2c`)
+
+Branch `phase-2-cell-context-tooltips`. Three commits squashed on merge:
+
+1. **`77af259` — `feat(web):` heatmap-tooltip helper + `QuartileCutoffs.median` (chunk 1).**
+   Pure helpers + golden tests. Extends `QuartileCutoffs` with `median:
+   number` (Type-7 q2, computed in the same `computeQuartileCutoffs` pass —
+   no second loop over the visible peer set). New
+   `web/lib/heatmap-tooltip.ts` exporting `describeRank(bucket, direction,
+   ratioName)` which composes the rank line ("Top quartile for NIM") +
+   direction-explanation line (e.g. "Higher NIM is positive — green tint
+   means stronger than at least 75% of the visible peer set"). The bucket
+   variable is semantic (`top` = green tint, `bottom` = red tint
+   regardless of direction); the rank line resolves to the value's
+   absolute quartile position via a `(bucket, direction) → value-quartile`
+   translation table. 13 golden cases covering the full 2 buckets × 2
+   active directions truth table + neutral / empty-name / whitespace-only
+   defensive fallbacks. The `valueInTopQuartile` decision is the cheapest
+   defense against a silent direction-wording flip in
+   `composeDirectionLine`.
+2. **`575ee5d` — `feat(web):` cell context tooltips wire-up + design.md
+   (chunk 2).** `ratio-matrix.tsx`:
+   - Threads `bucket` + `direction` + `peerMedian` into `DataCell`.
+     Bucket + direction + peerMedian are computed in the column cell
+     renderer once (mirrors the existing per-cell `threshold` pattern);
+     they ride alongside `threshold` and `cell` to the `DataCell`
+     branch.
+   - `quartileIndicatorBucket` narrows `Bucket` to `"top" | "bottom" | null`
+     and gates the new `●` button. The narrow is `threshold === null && (bucket === "top" || bucket === "bottom")` — explicit defense-in-depth
+     for layer precedence so a future refactor can't accidentally render
+     `△` and `●` together.
+   - New `●` superscript Radix tooltip on quartile-tinted cells. Same
+     focusable-button + `align-super text-superscript leading-none
+     rounded-sm focus:outline-none focus-visible:outline-1
+     focus-visible:outline-accent` pattern as PR-A's `r` and PR-D's `△`.
+     Color: `text-positive` for top bucket, `text-negative` for bottom
+     (both Tailwind v4 auto-generated from `--color-positive` /
+     `--color-negative`).
+   - New `QuartileTooltipBody` (3 lines): rank line via `describeRank`,
+     `formatRatio(value) vs peer median formatRatio(median)`, and the
+     generic-per-direction explanation in `text-text-secondary`.
+   - `SortHeader` refactored to drop the cert subtitle from the sort
+     button. The cert subtitle is now a sibling element rendered in the
+     column header function. Non-anchor: `<span className="block
+     text-table-data text-text-tertiary">Cert {n}</span>`. Anchor:
+     wrapped in `AnchorCertTrigger` — a focusable `<button>` showing
+     `Anchor · Cert {n}` and opening a Radix tooltip via
+     `AnchorHeaderTooltipBody`.
+   - `docs/design.md`: §Typography `--text-superscript` row mentions
+     `●`; §Conditional formatting heat-map section adds an explicit
+     `●` indicator bullet with layer-precedence note; new §Anchor
+     highlighting section documents the navy tint + cert-subtitle
+     tooltip pattern.
+3. **`90c3683` — `fix(web):` design-critic soft issues (in-PR cleanup).**
+   Two of three design-critic soft findings closed on-branch:
+   - `●` aria-label upgraded from generic `${ratioName} ${bucket}-tint
+     quartile indicator` to the full `rankLine` so a non-focused screen-
+     reader pass over the cell catches the rank without opening the
+     tooltip. `describeRank` is lifted out of `QuartileTooltipBody` and
+     called once in `DataCell` so the aria-label and the tooltip body
+     read from the same source.
+   - `QuartileTooltipBody` value-vs-median line: cell value and peer
+     median wrapped in `font-medium` for consistency with sibling
+     tooltip bodies (`RegulatoryFlagTooltipBody`, `RestatementTooltipBody`).
+
+**Diff (6 files, +362/-18):**
+
+- `web/lib/heatmap.ts` (+4) — `QuartileCutoffs.median` added; computed
+  via `quantile(sorted, 0.5)` in `computeQuartileCutoffs`.
+- `web/lib/heatmap.test.ts` (+13/-6) — three `toEqual` assertions
+  updated to include `median` (canonical [10,20,30,40,50] → median 30;
+  [10,20,30,40] → median 25; all-equal → 5); same update on the
+  golden-test fixture (4 non-suppressed values → median 25).
+- `web/lib/heatmap-tooltip.ts` (+84, new) — `describeRank` pure helper.
+- `web/lib/heatmap-tooltip.test.ts` (+123, new) — 13 golden cases.
+- `web/components/ratio-matrix.tsx` (+128/-12) — `DataCell` signature
+  expanded; new `●` button + tooltip; new `QuartileTooltipBody`,
+  `AnchorCertTrigger`, `AnchorHeaderTooltipBody`; `SortHeader`
+  refactored to drop the cert subtitle; column header renderer composes
+  SortHeader + sibling cert subtitle (conditional Tooltip for anchor).
+- `docs/design.md` (+10/-1) — §Typography token row updated, §Conditional
+  formatting heat map gains the `●` indicator bullet, new §Anchor
+  highlighting section.
+
+**Codex round-trip:**
+
+- Round 1 chunk 1 (helpers only at `77af259`): GATE PASS, **0 findings**.
+  Codex verbatim: *"The changes add median computation to quartile
+  cutoffs and a pure tooltip-copy helper with tests. I did not find a
+  discrete correctness issue in the modified code."*
+- Round 1 chunk 1+2 (cumulative at `575ee5d`): GATE PASS, **0 findings**.
+  Codex verbatim: *"The branch changes are type-correct and lint-clean
+  aside from an existing non-blocking TanStack Table compiler warning. I
+  did not find any discrete correctness issues in the added quartile
+  tooltip or anchor header behavior."* Sixth consecutive PR/chunk this
+  Sprint to clear codex on round 1.
+
+**Design-critic round-trip:**
+
+- Round 1 chunk 1+2: PASS, 0 blocking, 3 soft.
+  - **[Soft-1]** `●` aria-label minimally descriptive (`${ratioName}
+    ${bucket}-tint quartile indicator`). Fixed on-branch in `90c3683`:
+    swapped to the full `rankLine`.
+  - **[Soft-2]** `QuartileTooltipBody` value-vs-median line lacked
+    `font-medium` on the numerics while sibling tooltip bodies use it.
+    Fixed on-branch in `90c3683`: wrapped value + median in
+    `font-medium`.
+  - **[Soft-3]** Duplicate per-cell `resolveThreshold` /
+    `bucketForCell` / `directionFor` (PR-F adds `bucketForCell` and
+    `directionFor` to the cell render path; the existing `composeCellBg`
+    branch still runs them independently). Same PR-D-deferred soft
+    issue; PR-F doesn't increase the per-cell cost surface in the bg
+    path. Deferred with rationale — revisit when the peer set grows
+    beyond Tier 1, or if the React profiler flags the column cell
+    renderer as a hot path.
+
+**Verification on merge:** 134/134 vitest pass; 85/85 pytest unchanged.
+`npm run lint` 0 errors, 1 warning (pre-existing TanStack memo warning;
+line number now at `ratio-matrix.tsx:291` due to new useMemo /
+hook bodies in chunk 2). `npm run build` clean Turbopack compile +
+Sentry source-map upload. Dev-server smoke verified pre-merge: 39 `●`
+indicators rendering, 4 `△` regulatory flags preserved (same as
+post-PR-D state), 5 `r` restatement markers preserved (same as
+post-PR-A state), 1 anchor-bank aria-label. Layer precedence held
+across the smoke — no cell carried both `△` and `●`.
+
+**Plan-file review report:** logged via `gstack-review-log` (codex
+runs + design-critic run). Plan file
+`~/.claude/plans/you-re-continuing-peerbench-at-valiant-metcalfe.md`
+remains the source of truth for the chunk plan + locked decisions.
 
 ### PR #16 — Sprint 2 PR-D: conditional formatting heat map + amber/red flags (squash-merge `446a1af`)
 
