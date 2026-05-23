@@ -11,6 +11,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { CHART_FONT_SIZE } from "@/lib/chart-tokens";
 import { formatRatio } from "@/lib/format";
 import type { MatrixCell } from "@/lib/matrix-types";
 import { buildTrendChartData } from "@/lib/ratio-series";
@@ -60,12 +61,12 @@ export function RatioTrendChart({
         <XAxis
           dataKey="quarter_id"
           stroke="var(--color-text-secondary)"
-          tick={{ fill: "var(--color-text-secondary)", fontSize: 12 }}
+          tick={{ fill: "var(--color-text-secondary)", fontSize: CHART_FONT_SIZE.tableData }}
         />
         <YAxis
           tickFormatter={(v: number) => formatRatio(v)}
           stroke="var(--color-text-secondary)"
-          tick={{ fill: "var(--color-text-secondary)", fontSize: 12 }}
+          tick={{ fill: "var(--color-text-secondary)", fontSize: CHART_FONT_SIZE.tableData }}
           width={72}
         />
         <Tooltip
@@ -75,7 +76,7 @@ export function RatioTrendChart({
           contentStyle={{
             background: "var(--color-surface)",
             border: "1px solid var(--color-border)",
-            fontSize: 12,
+            fontSize: CHART_FONT_SIZE.tableData,
             color: "var(--color-text)",
           }}
           labelStyle={{ color: "var(--color-text-secondary)" }}
@@ -83,7 +84,7 @@ export function RatioTrendChart({
         />
         <Legend
           iconType="line"
-          wrapperStyle={{ fontSize: 12, color: "var(--color-text-secondary)" }}
+          wrapperStyle={{ fontSize: CHART_FONT_SIZE.tableData, color: "var(--color-text-secondary)" }}
         />
         {drawOrder.map((inst) => {
           const isAnchor = inst.cert === anchorCert;

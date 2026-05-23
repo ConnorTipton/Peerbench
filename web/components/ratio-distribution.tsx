@@ -10,6 +10,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { CHART_FONT_SIZE } from "@/lib/chart-tokens";
 import { formatRatio } from "@/lib/format";
 
 export type DistributionPoint = {
@@ -55,14 +56,14 @@ export function RatioDistribution({ points, quarterLabel }: Props) {
           type="number"
           tickFormatter={(v: number) => formatRatio(v)}
           stroke="var(--color-text-secondary)"
-          tick={{ fill: "var(--color-text-secondary)", fontSize: 12 }}
+          tick={{ fill: "var(--color-text-secondary)", fontSize: CHART_FONT_SIZE.tableData }}
           domain={["dataMin", "dataMax"]}
           label={{
             value: quarterLabel,
             position: "insideBottom",
             offset: -4,
             fill: "var(--color-text-tertiary)",
-            fontSize: 11,
+            fontSize: CHART_FONT_SIZE.superscript,
           }}
         />
         <YAxis dataKey="y" type="number" domain={[0, 1]} hide />
@@ -76,7 +77,7 @@ export function RatioDistribution({ points, quarterLabel }: Props) {
                 style={{
                   background: "var(--color-surface)",
                   border: "1px solid var(--color-border)",
-                  fontSize: 12,
+                  fontSize: CHART_FONT_SIZE.tableData,
                   color: "var(--color-text)",
                   padding: "6px 8px",
                 }}
