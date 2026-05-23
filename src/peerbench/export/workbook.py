@@ -1,4 +1,4 @@
-"""Workbook orchestration. Filled in by Task 14."""
+"""Workbook orchestration."""
 
 from __future__ import annotations
 
@@ -14,4 +14,5 @@ def run_export(
     quarter_id: str,
     out_dir: Path,
 ) -> Path:
-    raise NotImplementedError("filled in by Task 14")
+    # Implemented in Task 14 of the Phase 4.2 plan.
+    raise NotImplementedError

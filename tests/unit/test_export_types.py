@@ -11,7 +11,7 @@ from peerbench.export.data.types import (
 )
 
 
-def test_workbook_bundle_holds_six_tab_kinds() -> None:
+def test_workbook_bundle_construction() -> None:
     cover = CoverTab(
         anchor_cert=4063,
         anchor_name="MidFirst",
