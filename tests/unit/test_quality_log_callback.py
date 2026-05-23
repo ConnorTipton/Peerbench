@@ -268,8 +268,7 @@ class TestQualityLogCallbackCrossQuarter:
 
         # Exactly one UPDATE — the existing same-quarter flip.
         assert session.execute.call_count == 1, (
-            f"expected only the same-quarter flip; got "
-            f"{session.execute.call_count} UPDATE(s)"
+            f"expected only the same-quarter flip; got {session.execute.call_count} UPDATE(s)"
         )
 
     def test_unconsumed_field_emits_no_forward_update(self) -> None:

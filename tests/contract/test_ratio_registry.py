@@ -270,13 +270,14 @@ class TestAvgPattern:
             )
             if not ok:
                 rendered = ast.unparse(expr)
-                offenders.append(f"{mod_name}: f.avg(..., periods={rendered}) — expected f.quarter_number + 1")
+                offenders.append(
+                    f"{mod_name}: f.avg(..., periods={rendered}) — expected f.quarter_number + 1"
+                )
         assert not offenders, (
             "f.avg(...) periods expression must be `f.quarter_number + 1` "
             "(the only pattern the YTD-forward-quarters helper in the "
             "restatement detector supports). To use a different look-back, "
-            "extend _ytd_forward_quarters AND this test together.\n"
-            + "\n".join(offenders)
+            "extend _ytd_forward_quarters AND this test together.\n" + "\n".join(offenders)
         )
 
 
