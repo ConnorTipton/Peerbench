@@ -60,6 +60,7 @@ select = [
 ]
 ignore = [
     "E501",   # line too long — formatter handles it
+    "RUF001", # string literal "×" / "–" are intentional math/typographic notation
     "RUF002", # docstring "×" multiplication sign is intentional math notation
     "RUF003", # comment "×" multiplication sign is intentional math notation
 ]
