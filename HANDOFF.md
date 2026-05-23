@@ -1,4 +1,4 @@
-# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A/B/C + Vitest setup landed)
+# Peerbench — handoff (2026-05-22 late night, Sprint 2 PR-A → PR-D + Vitest + design-critic landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -12,6 +12,40 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
   design decisions confirmed: shadcn/Radix Tooltip primitive, defer the
   `cre_rbc` 36-month growth gate with a footnote (Phase 4 follow-up to
   ship `cre_rbc_growth_36mo` as a pipeline ratio), 5-atomic-PR chunking.
+- **PR #16 (Sprint 2 PR-D) merged at `446a1af`.** Conditional formatting
+  heat map + amber/red regulatory flags. Per-ratio quartile cutoffs across
+  the visible peer set tint cells `--color-positive` /10 (top quartile) or
+  `--color-negative` /10 (bottom), direction-aware via
+  `web/lib/heatmap-directions.ts` (e.g. higher NIM = green, higher
+  efficiency ratio = red, balance-sheet mix is neutral). Quartile cutoffs
+  exclude `data_quality === "suppressed"` cells so a CBLR filer's NULL
+  `tier1_rbc` doesn't skew the distribution. Cells crossing thresholds
+  defined in `ratio_defs.regulatory_threshold` get amber `/15` (≥amber_pct)
+  or red `/20` (≥red_pct); the `△` superscript button opens a Radix tooltip
+  with ratio + threshold + citation + the cre_rbc 36-month growth-gate
+  footnote. Layer precedence `amber > red > heatmap tint > anchor tint >
+  zebra` lives in `composeCellBg` at `ratio-matrix.tsx`. CRE two-tier
+  reads from JSONB (added `red_pct: 400` to `data/ratios.csv:26` and
+  synced via `peerbench seed-ratios`) — no numeric thresholds hardcoded
+  in TS. **Mandatory golden test** landed in `web/lib/heatmap.test.ts`
+  (5 values × 3 directions × suppressed-cell fixture, 22 cases). Plus
+  `heatmap-directions.test.ts` (7 cases) + `regulatory-thresholds.test.ts`
+  (24 cases). New design token `--color-amber: #b45309` (Tailwind amber-700,
+  banker-conservative). Codex round 1 GATE PASS, **0 findings** (third
+  consecutive PR this Sprint to clear codex on round 1, after PR-C and
+  PR #15). Codex verbatim: *"The changes add heat-map bucketing and
+  regulatory threshold presentation without introducing an evident
+  correctness issue in the modified code. TypeScript checking passes for
+  the web package."* Design-critic ran for the first time (sub-agent
+  promoted to first-class in this PR; see `.claude/agents/design-critic.md`)
+  — 0 blocking, 2 soft issues. One fixed on-branch in commit `3a44b54`
+  (added `--text-superscript: 10px` token, converted 3 sites from
+  `text-[10px]` to `text-superscript`, formalized in design.md
+  §Typography); the other (double `resolveThreshold` call per cell)
+  deferred with rationale — negligible at 150-cell scale. Live on prod
+  at https://peerbench-web.vercel.app/ — HTTP 200, 538 ms TTFB, 4 amber
+  buttons rendered on 2025-Q4 data (cre_rbc @300%, cd_rbc @100%,
+  uninsured_dep @50% ×2); all 4 color-mix patterns active.
 - **PR #15 (Vitest test runner) merged at `ef4b45c`.** Zero-feature
   setup PR landed ahead of Sprint 2 PR-D so the "mandatory" quartile
   golden test (`computeQuartileCutoffs` + `bucketForCell`) has a runner
@@ -111,17 +145,136 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     (delay from the 03:00 UTC schedule is normal free-tier behavior).
     First scheduled run after PR #5; second + third firings expected
     2026-05-23 and 2026-05-24.
-- **Test count: 85 pytest + 68 vitest.** Python suite unchanged across
-  PR-A through PR-C and PR #15 — none touched the value path. Vitest
-  is the first JS test runner in `web/`; suite covers the four pure
-  helpers (`collapse.ts`, `sort.ts`, `format.ts`, `ratio-order.ts`)
-  shipped in PRs #1 / A / B / C.
-- **Working tree:** on `main` @ `ef4b45c`, clean. Feature branches
+- **Test count: 85 pytest + 122 vitest.** Python suite unchanged across
+  PR-A through PR-D and PR #15 — none touched the value path. Vitest
+  is the first JS test runner in `web/`; suite now covers seven pure-helper
+  modules (`collapse.ts`, `sort.ts`, `format.ts`, `ratio-order.ts`,
+  `heatmap.ts`, `heatmap-directions.ts`, `regulatory-thresholds.ts`).
+  PR #16 contributed 54 new cases across the three heat-map modules.
+- **Working tree:** on `main` @ `446a1af`, clean. Feature branches
   `phase-2-cross-quarter-recompute`, `phase-2-restatement-tooltip`,
-  `phase-2-per-peer-sort`, `phase-2-category-collapse`, and
-  `phase-2-web-vitest` all deleted on merge.
+  `phase-2-per-peer-sort`, `phase-2-category-collapse`,
+  `phase-2-web-vitest`, and `phase-2-heatmap-amber-flags` all deleted
+  on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16)
+
+### PR #16 — Sprint 2 PR-D: conditional formatting heat map + amber/red flags (squash-merge `446a1af`)
+
+Branch `phase-2-heatmap-amber-flags`. Four commits squashed on merge:
+
+1. **`a3dceff` — `feat(web):` heat map helpers + golden tests (chunk 1).**
+   CSV edit (cre_rbc `red_pct: 400` added) + `peerbench seed-ratios`
+   sync, then three framework-free TS modules + three test files.
+2. **`a8720b6` — `feat(web):` heat map + amber/red flag wire-up (chunk 2).**
+   `cutoffsByRatio` useMemo, layered `composeCellBg`, `DataCell`
+   regulatory flag tooltip threading, `--color-amber` token in @theme,
+   design.md updates (opacity tiers, layer precedence, CRE two-tier
+   formalization).
+3. **`3a44b54` — `fix(web):` design-critic — `--text-superscript` token.**
+   In-PR cleanup for the design-critic soft issue: added the token to
+   `@theme`, converted 3 sites in `ratio-matrix.tsx` from `text-[10px]`
+   to `text-superscript`, documented in design.md §Typography.
+4. **`8072ac9` — `chore(.claude):` design-critic sub-agent file.**
+   CLAUDE.md had listed `design-critic` as a Phase 2/4 sub-agent but the
+   file didn't exist; this commit makes it a first-class agent
+   discoverable by Claude Code's agent loader.
+
+**Diff (11 files, +956/-12):**
+
+- `data/ratios.csv` (+1/-1) — `cre_rbc` regulatory_threshold gains
+  `red_pct: 400`. Synced to `ratio_defs` via `peerbench seed-ratios`.
+- `web/lib/heatmap.ts` (+81, new) — `computeQuartileCutoffs` (Type-7
+  quartile, equivalent to Excel QUARTILE.INC / R default) + `bucketForCell`.
+  Strict-> boundary semantics; returns null cutoffs when <4 finite values
+  (e.g. an all-CBLR peer set queried for tier1_rbc, where the matrix
+  falls back to no quartile tint).
+- `web/lib/heatmap-directions.ts` (+71, new) — per-ratio direction map
+  covering all 30 ratio_ids. Concentration ratios (`cre_rbc`, `cd_rbc`)
+  are `neutral` (regulatory-only, no quartile tint). Balance-sheet mix
+  is mostly `neutral`. Funding-risk heuristics (`uninsured_dep`,
+  `brokered_dep`, `htm_loss_t1`) are `higher_is_negative`. Direction
+  defaults to `neutral` for unknown ratio_ids.
+- `web/lib/regulatory-thresholds.ts` (+83, new) — resolver reads
+  `amber_pct` / `red_pct` from `RatioDef.regulatory_threshold` JSONB;
+  no numeric thresholds hardcoded in TS. Citation strings (presentational
+  text, no math) live here keyed by ratio_id. `cre_rbc` gets the SR 07-1
+  §III.A 36-month growth-gate footnote on every amber/red result. Capital
+  ratios (`tier1_rbc`, etc.) carry `min_well_capitalized` but are
+  intentionally NOT flagged — that's an informational floor, not a
+  concentration-risk amber trigger.
+- `web/lib/heatmap.test.ts` (+165, new) — 22 tests including the
+  plan-mandated golden case (5 values × 3 directions × suppressed-cell
+  exclusion → expected bucket).
+- `web/lib/heatmap-directions.test.ts` (+71, new) — 7 tests covering
+  the 1:1 correspondence with `RATIO_ORDER`, valid direction enum,
+  category-level direction expectations, and `directionFor` lookup
+  fallback to `neutral`.
+- `web/lib/regulatory-thresholds.test.ts` (+170, new) — 24 tests covering
+  cre_rbc two-tier (boundary + above/below), single-tier amber for the
+  four other regulatory ratios, capital-floor non-trigger, JSONB
+  defensiveness (missing, NaN, non-numeric, no citation), and
+  `CRE_GROWTH_GATE_FOOTNOTE` attachment.
+- `web/components/ratio-matrix.tsx` (+114/-9) — adds `cutoffsByRatio`
+  useMemo (recomputes only when `ratioGroups`, `institutions`, or
+  `cells` change), `composeCellBg` helper with the locked layer
+  precedence as an explicit if/else cascade, regulatory flag tooltip
+  via Radix primitive (reused from PR-A, no new dep), and threading of
+  `threshold` + `ratioName` into `DataCell`.
+- `web/app/globals.css` (+2) — adds `--color-amber: #b45309` and
+  `--text-superscript: 10px` tokens to `@theme`.
+- `docs/design.md` (+13/-3) — formalizes `--color-amber`,
+  `--text-superscript`, the `/10` `/15` `/20` opacity tiers, layer
+  precedence, and the `cre_rbc` two-tier (300 amber / 400 red) with
+  growth-gate deferral language.
+- `.claude/agents/design-critic.md` (+145, new) — promotes the
+  design-critic sub-agent to first-class (CLAUDE.md had listed it; the
+  file didn't exist). Hard rules trace directly to design.md §Don'ts +
+  §Layout rules; PR-D-specific checklist included for the conditional
+  formatting heat map so the agent stays useful through Phase 4.
+
+**Codex round-trip:**
+
+- Round 1 (cumulative across `a3dceff` + `a8720b6`): GATE PASS, **0 findings**
+  (third consecutive PR this Sprint to clear codex on round 1, after
+  PR-C and PR #15). Codex verbatim: *"The changes add heat-map bucketing
+  and regulatory threshold presentation without introducing an evident
+  correctness issue in the modified code. TypeScript checking passes
+  for the web package."*
+
+**Design-critic round-trip:**
+
+- Round 1 (cumulative across `a3dceff` + `a8720b6`): PASS, 0 blocking,
+  2 soft issues.
+  - **[Soft-1] `text-[10px]` arbitrary Tailwind size** at three sites
+    in `ratio-matrix.tsx` (2 new in PR-D, 1 legacy from PR-A's `r`
+    superscript) with no matching `@theme` token. Fixed on-branch in
+    commit `3a44b54`: added `--text-superscript: 10px` token, converted
+    all three sites, documented in design.md §Typography.
+  - **[Soft-2] Double `resolveThreshold` call per cell** (once in
+    `composeCellBg`, once in the column cell renderer for the tooltip
+    trigger). Negligible at 150-cell scale. Deferred with rationale —
+    revisit if PR-E grows the peer count or if the React profiler ever
+    flags it as a hot path.
+
+**Verification on merge:** 122/122 vitest pass; 85/85 pytest unchanged.
+`npm run lint` 0 errors, 1 warning (pre-existing TanStack memo warning
+at `ratio-matrix.tsx:268`, line number shifted from 224 → 266 → 268 as
+hooks were added in chunk 2). `npm run build` clean Turbopack compile +
+Sentry source-map upload. Vercel rebuild succeeded; prod URL HTTP 200,
+**538 ms TTFB**, 4 amber buttons rendered on 2025-Q4 data, all 4
+color-mix patterns active (`--color-amber` 15%, `--color-negative` 10%
+bottom-quartile, `--color-positive` 10% top-quartile, `--color-primary`
+6% anchor).
+
+**Plan-file review report:** logged via `gstack-review-log`; absorbed
+into the `## GSTACK REVIEW REPORT` table in
+`~/.claude/plans/zippy-pondering-volcano.md` (6 codex runs across
+PR-A → PR-D, all CLEAR; 4 findings total, 4/4 fixed; PR-D contributed
+0). First entry for `design-critic` row (1 run, 2 soft, 1 fixed,
+1 deferred).
+
+
 
 ### PR #15 — Vitest runner + golden tests for pure helpers (squash-merge `ef4b45c`)
 
@@ -600,12 +753,11 @@ Vercel rebuild succeeded; prod URL HTTP 200, **573 ms TTFB**
 ### Phase 2 — Sprint 2 (in flight)
 
 Sprint 2 plan locked at `~/.claude/plans/zippy-pondering-volcano.md`.
-Five atomic PRs in order A → B → C → D → E. PR-A, PR-B, and PR-C
-landed today; PR-D and PR-E remain. Cross-quarter recompute (originally
-item g) already merged via PR #11 and is excluded from the plan. The
-JS test-runner infrastructure called out as a PR-D pre-req shipped as
-PR #15 (out-of-band 0-feature setup PR), so PR-D's mandatory golden
-test no longer blocks on infra.
+Five atomic PRs in order A → B → C → D → E. PR-A through PR-D have all
+landed; only PR-E remains. Cross-quarter recompute (originally item g)
+already merged via PR #11 and is excluded from the plan. The JS
+test-runner infrastructure called out as a PR-D pre-req shipped as
+PR #15 (out-of-band 0-feature setup PR).
 
 - ~~**PR-A** Restatement tooltip~~ **Closed by PR #12 @ `80d2b58`.**
   Hover on `r` superscript reveals "Was X, now Y (restated YYYY-MM-DD)"
@@ -628,17 +780,18 @@ test no longer blocks on infra.
   rows already in the active sort order (locked design choice).
   Pure helpers in `web/lib/collapse.ts`. Codex round 1 GATE PASS, 0
   findings (first PR-X this Sprint to clear codex on round 1).
-- **PR-D** Conditional formatting heat map (items e + f bundled —
-  both compete for cell background). New files `web/lib/heatmap.ts`,
-  `web/lib/heatmap-directions.ts`, `web/lib/regulatory-thresholds.ts`.
-  Honor `docs/design.md` "300% amber, 400% red" CRE two-tier. Quartile
-  cutoffs exclude `data_quality === 'suppressed'` cells. `cre_rbc`
-  36-month growth gate **deferred** to Phase 4 with a footnote ("Growth
-  gate not yet wired — see SR 07-1 §III.A") to preserve the "no formula
-  logic in TS" rule. **Mandatory unit test** (now unblocked by PR #15's
-  Vitest runner): golden test for `computeQuartileCutoffs` +
-  `bucketForCell` — file path `web/lib/heatmap.test.ts` per the
-  established pattern.
+- ~~**PR-D** Conditional formatting heat map~~ **Closed by PR #16 @
+  `446a1af`.** Three pure-helper modules + 54 golden tests; layered
+  `composeCellBg` with the locked precedence `amber > red > heatmap
+  tint > anchor tint > zebra`. `cre_rbc` two-tier (300/400) reads from
+  the same JSONB as every other threshold (added `red_pct: 400` to
+  `data/ratios.csv:26` and synced). `cre_rbc` 36-month growth gate
+  deferred to Phase 4 with a tooltip footnote. Codex round 1 GATE PASS,
+  0 findings. Design-critic ran for the first time (newly-minted
+  first-class sub-agent in `.claude/agents/design-critic.md`); 0
+  blocking, 2 soft — one fixed on-branch (`text-[10px]` →
+  `--text-superscript` token, commit `3a44b54`), one deferred (double
+  `resolveThreshold` call, negligible at 150 cells).
 - **PR-E** Per-ratio drilldown at `/ratio/[ratio_id]`. 8-quarter
   Recharts `LineChart` + ScatterChart strip plot (not box plot — N=5
   peers is statistically thin). Add `recharts` (~90 KB gzipped) only to
@@ -692,7 +845,9 @@ test no longer blocks on infra.
 ```bash
 git -C /Users/connortipton/Projects/Peerbench log main -8 --oneline
 # Expect (top to bottom):
-#   <new HANDOFF commit>  docs(handoff): post-PR-#15 — Vitest landed, PR-D unblocked
+#   <new HANDOFF commit>  docs(handoff): post-PR-#16 — Sprint 2 PR-D landed
+#   446a1af  feat(web): conditional formatting heat map + amber/red flags (Sprint 2 PR-D) (#16)
+#   384b339  docs(handoff): post-PR-#15 — Vitest landed, PR-D unblocked
 #   ef4b45c  chore(web): add Vitest runner + golden tests for pure helpers (#15)
 #   38e2e4d  docs(handoff): post-PR-#14 — Sprint 2 PR-C landed
 #   04fcfbd  feat(web): ratio category collapse/expand (Sprint 2 PR-C) (#14)
@@ -705,10 +860,10 @@ cd /Users/connortipton/Projects/Peerbench && uv run pytest 2>&1 | tail -3
 # Expect: 85 passed
 
 cd web && npm test 2>&1 | tail -5
-# Expect: Test Files 4 passed (4), Tests 68 passed (68).
+# Expect: Test Files 7 passed (7), Tests 122 passed (122).
 
 cd web && npm run lint 2>&1 | tail -3
-# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:224).
+# Expect: 0 errors, 1 warning (pre-existing TanStack memo warning at ratio-matrix.tsx:268).
 
 cd web && npm run build 2>&1 | tail -8
 # Expect: clean Turbopack compile. If SENTRY_AUTH_TOKEN is set,
@@ -873,50 +1028,38 @@ and 2026-05-24 ~03:00 UTC (free-tier delay of a few hours is normal). No
 action required — check `gh run list --workflow=daily-ingest.yml --limit 5`
 on each of those days. Once the third lands, Phase 3 is DoD-complete.
 
-**Active: Phase 2 Sprint 2 PR-D (heat map + amber flags).** The Sprint
-2 plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
-through PR-C have all landed (#12 / #13 / #14), and PR #15 landed the
-JS test-runner infrastructure (Vitest + 68 golden tests on existing
-helpers) so PR-D's mandatory unit test no longer blocks on infra. The
-next chunk is PR-D in earnest.
+**Active: Phase 2 Sprint 2 PR-E (per-ratio drilldown).** The Sprint 2
+plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
+through PR-D have all landed (#12 / #13 / #14 / #16), with PR #15 in
+between to ship the Vitest infra. **PR-E is the last Sprint 2 item;
+once it lands, Phase 2 DoD is closed and Phase 4 starts.**
 
-PR-D scope (from the plan, lines 163-232):
+PR-E scope (from the plan, lines 234+):
 
-- New files `web/lib/heatmap.ts`, `web/lib/heatmap-directions.ts`,
-  `web/lib/regulatory-thresholds.ts` (pure helpers; framework-free per
-  the established Sprint 2 pattern from `lib/sort.ts` and
-  `lib/collapse.ts`).
-- Quartile-based heat-map tint per cell (cell background varies with
-  position in the peer-tier distribution); honor `docs/design.md`
-  "300% amber, 400% red" CRE two-tier; quartile cutoffs MUST exclude
-  `data_quality === 'suppressed'` cells (they don't carry signal).
-- Amber-flag tooltip on regulatory-threshold cells — **reuse PR-A's
-  Radix Tooltip primitive** at `web/components/ui/tooltip.tsx` for the
-  source-citation tooltip ("SR 07-1 §III.A", etc.). No new dependency.
-- `cre_rbc` 36-month growth gate **deferred** to Phase 4 with a
-  footnote ("Growth gate not yet wired — see SR 07-1 §III.A") to
-  preserve the "no formula logic in TS" rule. Plan calls for shipping
-  `cre_rbc_growth_36mo` as a pipeline ratio in Phase 4.
-- Heavy visual diff — plan suggests running `design-critic` sub-agent
-  in parallel with `/codex review` for this PR.
-- **Mandatory unit test** (per the plan, the only one in Sprint 2 with
-  this bar — and now unblocked by PR #15): golden test for
-  `computeQuartileCutoffs` + `bucketForCell` — 5 values × 3 directions
-  × one suppressed-cell case → expected bucket per case. File path
-  `web/lib/heatmap.test.ts` per the established Vitest pattern.
+- New route at `/ratio/[ratio_id]` — server-rendered drilldown for a
+  single ratio across all peers + 8 quarters of history.
+- 8-quarter trend chart (`Recharts` `LineChart`, one line per peer with
+  the anchor highlighted). Add `recharts@^2` (~90 KB gzipped) to
+  dependencies. **Make sure `next build` confirms `recharts` is bundled
+  only into the `/ratio/[id]` chunk, not the matrix page** — Recharts
+  is the only PR-E runtime dependency add, and matrix-page bundle
+  bloat would regress the <1s DoD target.
+- Strip plot via Recharts `ScatterChart` (not box plot — N=5 peers is
+  statistically thin; a box plot's quartile box is meaningless with 5
+  observations).
+- Link from each ratio name in the matrix `<a href={'/ratio/' + ratio_id}>`
+  (or `Link` with prefetch). Server-render the drilldown to keep TTFB
+  in the same band as the matrix page.
+- Re-use the existing pure helpers where applicable. New per-ratio
+  data query in `web/lib/queries.ts` for the 8-quarter × 5-peer cross-
+  section. No new pipeline changes — drilldown reads the same `ratios`
+  table.
 
-Branch `phase-2-heatmap-amber-flags`. Same flow as PR-C: implement
-helpers + tests (TDD-style via `npm run test:watch`), wire into
-`ratio-matrix.tsx`, local verify (`npm test` + `npm run build` +
-`npm run lint` + `uv run pytest`), push, open PR, `/codex review` gate
-(plus `design-critic` sub-agent for visual diff), fix P1/P2s on the
-same branch, squash-merge.
-
-Sprint 2 PR sequence after PR-D: PR-E (drilldown route at
-`/ratio/[ratio_id]`, 8-quarter trend chart + strip plot via Recharts).
-PR-E is the only PR that adds a runtime dependency (`recharts`, ~90 KB
-gzipped) — make sure `next build` confirms `recharts` is bundled only
-into the `/ratio/[id]` chunk, not the matrix page.
+Branch `phase-2-ratio-drilldown` (or similar). Same flow as PR-D:
+implement helpers + page + tests, local verify (`npm test` + build +
+lint + pytest), push, open PR, `/codex review` + `design-critic` in
+parallel, fix any P1/P2s on-branch, squash-merge. Heavy visual diff
+(charts) → design-critic is high-value here too.
 
 Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
 Excel export + banking design pass + README/Loom) is the only thing left.
@@ -952,7 +1095,7 @@ has already locked the visual vocabulary.
 | Daily ingest cron green 3 consecutive days | 1 of 3 (calendar wait) |
 | Weekly backup cron green ≥ 1 firing | ✅ |
 | Sentry receiving events | ✅ (30 server transactions) |
-| Dashboard load <1 s | ✅ (warm TTFB 330–600 ms) |
+| Dashboard load <1 s | ✅ (warm TTFB 330–600 ms; PR-D rebuild measured 538 ms) |
 | Restatement markers correct on 5 expected cells | ✅ |
 
 Calendar gate `2026-05-23` + `2026-05-24` is the only remaining bullet.
