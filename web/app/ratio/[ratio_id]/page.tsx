@@ -66,12 +66,21 @@ export default async function RatioDrilldownPage({
 
   const def = series.ratioDef;
 
+  // Preserve the user's anchor selection on the back-trip to the matrix —
+  // symmetric to the matrix-to-drilldown forwarding in `ratio-matrix.tsx`.
+  // Only forward when the selection isn't the default; an empty `?anchor=`
+  // is just visual noise in the URL.
+  const matrixBackHref =
+    anchorCert !== DEFAULT_ANCHOR_CERT
+      ? `/?anchor=${anchorCert}`
+      : "/";
+
   return (
     <main className="min-h-dvh px-6 py-6">
       <header className="mb-4 flex items-baseline justify-between gap-4">
         <div className="flex items-baseline gap-4">
           <Link
-            href="/"
+            href={matrixBackHref}
             className="rounded-sm text-body text-text-secondary focus:outline-none focus-visible:outline-1 focus-visible:outline-accent hover:text-accent"
           >
             ← Matrix
