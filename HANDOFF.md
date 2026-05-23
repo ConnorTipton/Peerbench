@@ -1,4 +1,4 @@
-# Peerbench — handoff (post-PR-#17 — Sprint 2 PR-F: cell context tooltips landed)
+# Peerbench — handoff (post-PR-#18 — Sprint 2 PR-E: per-ratio drilldown landed; Sprint 2 + Phase 2 DoD-complete)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,6 +6,69 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
+- **PR #18 (Sprint 2 PR-E) merged at `74f868b`.** Per-ratio drilldown
+  route at `/ratio/[ratio_id]` ships — 8-quarter trend `LineChart` (one
+  `<Line>` per peer; anchor 2.5px `--color-accent`, peers 1px
+  `--color-text-tertiary`; anchor drawn last so it sits on top of peer
+  overlap) + peer distribution strip plot via Recharts `ScatterChart`
+  (6px anchor dot in accent, 4px peer dots in tertiary, hidden y-axis).
+  Strip plot chosen over a box plot per plan §"Open decisions" item 3
+  (N=5 peers makes quartile boxes statistically misleading). Matrix
+  ratio-name labels become `<Link>` triggers into the drilldown — first
+  navigation surface in the dashboard. New server query
+  `getRatioTimeSeries(ratioId, windowSize=8)` in `lib/queries.ts`
+  anchors on `ratios` not `quarters` (same correctness argument as
+  `getMatrixData`); returns `null` for unknown ratio_id → route calls
+  `notFound()` (404 on `/ratio/does_not_exist` confirmed on prod).
+  Pure helpers `selectRecentQuarterIds` + `buildTrendChartData` live in
+  `lib/ratio-series.ts` with a 10-case golden test
+  (`ratio-series.test.ts`) covering the n=0 edge (caught a real
+  bounds-check-after-push bug during dev), null-cell gaps, and
+  quarter-order preservation. **Recharts@^3.8.1** added — only new
+  Sprint 2 npm dep. Bundle verification via
+  `_client-reference-manifest.js`: Recharts chunk `0_.zyvaujuqap.js`
+  (372 KB unminified) lives **only** in the `/ratio/[ratio_id]`
+  manifest, **not** in the matrix `/page` manifest. Matrix client
+  chunks unchanged. **Codex 4-round review chain: P2 / P2 / P2 / GATE
+  PASS** — each round surfaced one ripple of the anchor-preservation
+  problem, all three fixed on-branch:
+  - Round 1 P2 (`b7c9367`): matrix→drilldown `<Link>` dropped
+    `?anchor=` so non-default selection lost on nav; fixed by reading
+    `searchParams.get("anchor")` and forwarding via
+    `encodeURIComponent`. Same commit also closed design-critic soft
+    #1 + #3 by tokenizing all Recharts `fontSize` literals through a
+    new `lib/chart-tokens.ts` JS mirror of the `@theme` typography
+    tokens (Recharts needs JS numbers; can't read CSS vars).
+  - Round 2 P2 (`0948fce`): drilldown→matrix `← Matrix` back-link
+    hard-coded `/`, symmetric anchor drop; fixed by building the href
+    from the validated `anchorCert` when `!== DEFAULT_ANCHOR_CERT`.
+  - Round 3 P2 (`0a023eb`): empty-data ratios (`top_loan_cat` raises
+    `NotImplementedError`, has no `ratios` rows) returned
+    `institutions: []` from the query, making anchor validation fail
+    on the drilldown and silently re-pinning the back-link to
+    default; fixed by fetching active peers in parallel with quarter
+    discovery so they're always returned regardless of the data
+    branch. Restructured for clarity — first round parallelizes
+    `ratioQuarters` + `institutions`, second round parallelizes
+    `quarters` + `ratios`.
+  - Round 4: 0 findings, GATE PASS. **Design-critic PASS, 0 blocking,
+    2 soft fixed on-branch (#1 chart-font tokens + #3 11px→10px axis
+    label), 5 acknowledged or deferred** (#2 anchor dot calibration,
+    #4 eyebrow-token rename, plus design.md §Typography +
+    §Anchor-highlighting amendments as post-merge follow-ups). Live
+    on prod at https://peerbench-web.vercel.app/ — `/`,
+    `/ratio/nim`, `/ratio/eff_ratio` all HTTP 200;
+    `/ratio/does_not_exist` HTTP 404; rendered HTML confirms
+    "8-quarter trend" and "Peer distribution" section headers
+    present. Test count: 134 → **144 vitest** (+10 cases from
+    `ratio-series.test.ts`); pytest unchanged at 85. **Sprint 2
+    complete: PR-A through PR-E all landed (#12 / #13 / #14 / #16
+    / #18), plus PR #15 Vitest infra and PR-F (#17) post-plan
+    cell-context tooltips. Phase 2 is DoD-complete; only Phase 4
+    polish remains.**
+- **Phase 3 daily-ingest cron at 2 of 3.** Second green firing landed
+  2026-05-23 06:11:42 UTC (`gh run 26325458004`, 12m22s). One more
+  required (2026-05-24 ~03:00 UTC) and Phase 3 DoD closes.
 - **PR #17 (Sprint 2 PR-F) merged at `f62db2c`.** Cell context tooltips —
   every cell whose background is non-default now carries an explainer.
   Three new tooltip surfaces: (1) focusable `●` superscript on quartile-
@@ -189,7 +252,139 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
   `phase-2-web-vitest`, `phase-2-heatmap-amber-flags`, and
   `phase-2-cell-context-tooltips` all deleted on merge.
 
-## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17)
+## What landed this session (PRs #6, #7, #8, #9, #10, #11, #12, #13, #14, #15, #16, #17, #18)
+
+### PR #18 — Sprint 2 PR-E: per-ratio drilldown route + 8-quarter trend / strip plot (squash-merge `74f868b`)
+
+**Branch.** `phase-2-ratio-drilldown` (5 commits before squash; deleted on merge).
+
+**Commits before squash:**
+- `6735a71` feat(web): per-ratio drilldown pure helpers + tests
+  (`lib/matrix-types.ts` adds `timeSeriesPointKey`; `lib/ratio-series.ts`
+  exports `selectRecentQuarterIds` + `buildTrendChartData`;
+  `lib/ratio-series.test.ts` covers 10 golden cases including the n=0
+  edge that caught a real bounds-check-after-push bug during dev).
+- `132af07` feat(web): drilldown route + trend / distribution charts +
+  matrix Link wire-up + `recharts@^3.8.1` dep.
+- `b7c9367` fix(web): preserve `?anchor=` on matrix→drilldown nav
+  (codex round 1 P2) + tokenize Recharts `fontSize` literals via
+  `lib/chart-tokens.ts` (design-critic soft #1 + #3).
+- `0948fce` fix(web): preserve `?anchor=` on drilldown→matrix
+  back-link (codex round 2 P2).
+- `0a023eb` fix(web): always return active peers from
+  `getRatioTimeSeries` so anchor validation succeeds on
+  empty-data ratios (`top_loan_cat`) (codex round 3 P2).
+
+**Diff stats (vs main).** 11 files changed, 1200 insertions, 7 deletions.
+- `web/app/ratio/[ratio_id]/page.tsx` (new server route, header +
+  ratio metadata grid + 8-quarter trend section + distribution
+  section; calls `notFound()` on unknown ratio_id; reads
+  `?anchor=` and validates against the returned peer set).
+- `web/components/ratio-trend-chart.tsx` (new client; Recharts
+  `LineChart`, anchor drawn last so its line sits on top of peer
+  overlap; `connectNulls={false}`; `isAnimationActive={false}`).
+- `web/components/ratio-distribution.tsx` (new client; Recharts
+  `ScatterChart` strip plot; 6px anchor dot vs 4px peer dots).
+- `web/components/ratio-matrix.tsx` (ratio-name column wraps in
+  `<Link>` with `?anchor=` forwarding; +9 / −3).
+- `web/lib/queries.ts` (new `getRatioTimeSeries(ratioId,
+  windowSize=8)`; anchors on `ratios` not `quarters` for the same
+  correctness argument as `getMatrixData`; restructured into
+  two parallel rounds — ratio_quarters + institutions first,
+  quarters + ratios second).
+- `web/lib/ratio-series.ts` (new pure helpers, 63 lines).
+- `web/lib/ratio-series.test.ts` (new, 10 cases).
+- `web/lib/chart-tokens.ts` (new, JS mirror of `@theme` typography
+  tokens since Recharts can't read CSS variables).
+- `web/lib/matrix-types.ts` (new `timeSeriesPointKey` helper).
+- `web/package.json` + `web/package-lock.json` (`recharts@^3.8.1`).
+
+**Codex review chain (4 rounds).**
+- Round 1: P2 — matrix `<Link>` to `/ratio/[id]` dropped `?anchor=`,
+  silently re-pinning the drilldown to MidFirst from any
+  non-default anchor view. Fixed in `b7c9367` by reading
+  `searchParams.get("anchor")` and forwarding via
+  `encodeURIComponent`; `anchorParam` threaded into the columns
+  `useMemo` deps so the link rebuilds when `AnchorSelect` switches
+  anchor without unmounting.
+- Round 2: P2 — symmetric inverse; the drilldown's `← Matrix`
+  back-link hard-coded `/`, so even a fresh `?anchor=` arrival
+  dropped on the return trip. Fixed in `0948fce` by building the
+  href from the post-validation `anchorCert` when
+  `!== DEFAULT_ANCHOR_CERT` (skipping the param in the default
+  case to keep the URL bar clean).
+- Round 3: P2 — empty-data ratios (e.g. `top_loan_cat`, whose
+  handler raises `NotImplementedError` and produces no `ratios`
+  rows) had `getRatioTimeSeries` return `institutions: []`, which
+  made the anchor membership check fail and re-trigger the
+  default fallback that round 2 was supposed to prevent. Fixed
+  in `0a023eb` by fetching active peers in parallel with
+  quarter-id discovery, before the empty-data branch — they're
+  always returned regardless of which branch the function takes.
+  Round-trip shape preserved: still two sequential rounds, just
+  parallelizes (`ratio_quarters` + `institutions`) and then
+  (`quarters` + `ratios`).
+- Round 4: 0 findings, GATE PASS. TypeScript clean. Only the
+  pre-existing TanStack `useReactTable` compiler-skip warning
+  remained (unchanged across the Sprint).
+
+**Design-critic.** Ran via a `general-purpose`-carrier agent reading
+the `.claude/agents/design-critic.md` definition (the agent name isn't
+registered as a first-class `subagent_type` yet — that's a small
+infra cleanup someday but doesn't block use today). Verdict: **0
+blocking, 7 soft items.** Two fixed on-branch in `b7c9367`:
+- #1: 5× `fontSize: 12` + 1× `fontSize: 11` in Recharts inline
+  styles bypassed the PR-D `--text-superscript` precedent. Fixed
+  by adding `web/lib/chart-tokens.ts` and replacing all literals
+  with `CHART_FONT_SIZE.tableData` (12, mirrors
+  `--text-table-data`) and `CHART_FONT_SIZE.superscript` (10,
+  mirrors `--text-superscript`).
+- #3: 11px axis label had no token (design.md §Typography defines
+  24/16/14/12/10 only). Snapped down to 10 via the same fix.
+
+Soft items deferred with rationale:
+- #2 strip-plot anchor dot calibration (6px vs 4px = 1.5× area;
+  Bloomberg/Capital IQ use ~2× area) — design-defensible at
+  current sizing; revisit if peer count grows.
+- #4 eyebrow-label token rename (`text-table-data` reused for
+  uppercase tracking-wide labels — pixel value correct but
+  semantic naming mismatch) — Phase 4.3 design pass cleanup.
+- #5 EmptyState — banker-acceptable as-is, no action.
+- #6 matrix Link affordance — looks good (transparent underline,
+  accent on hover, focus-visible outline). Affordance ratio vs
+  the bolder anchor-cert tooltip trigger is correct: ratio
+  names are navigational, anchor cert is informational.
+- #7 anchor draw order — correct call; comment at
+  `ratio-trend-chart.tsx:30-38` documents why.
+
+Two design.md amendments suggested as Phase 4.3 follow-ups:
+- §Typography: codify that Recharts text uses
+  `--text-table-data` for ticks and `--text-superscript` for
+  axis labels (closes the gap that PR-E's `chart-tokens.ts`
+  patched in code but not in the spec).
+- §Anchor highlighting: codify that the trend-chart anchor
+  stroke is `--color-accent` at 2.5px drawn last.
+
+**Verification.**
+- Local: `npm test` 144 passing (134 prior + 10 from
+  `ratio-series.test.ts`); `npm run lint` clean (1 pre-existing
+  TanStack warning); `npm run build` green; `uv run pytest -q`
+  85 passing.
+- Bundle: `.next/server/app/page_client-reference-manifest.js`
+  vs `.next/server/app/ratio/[ratio_id]/page_client-reference-manifest.js`
+  — Recharts chunk `0_.zyvaujuqap.js` (372 KB unminified) appears
+  only in the drilldown manifest. Matrix client chunks unchanged.
+- Prod: `/` HTTP 200; `/ratio/nim` HTTP 200; `/ratio/eff_ratio`
+  HTTP 200; `/ratio/does_not_exist` HTTP 404; rendered HTML
+  confirms "8-quarter trend" + "Peer distribution" section
+  headers present on a valid drilldown.
+
+**Working-tree state at handoff.** `main` @ `74f868b`. Local branch
+`phase-2-ratio-drilldown` deleted on merge. No uncommitted work.
+
+**Sprint 2 status.** PR-A → PR-E all landed (#12 / #13 / #14 / #16 /
+#18) plus PR #15 (Vitest infra) and PR-F (#17, post-plan cell-context
+tooltips). **Phase 2 DoD-complete.** Next active scope is Phase 4.
 
 ### PR #17 — Sprint 2 PR-F: cell context tooltips (squash-merge `f62db2c`)
 
@@ -1185,81 +1380,93 @@ publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## Recommended first action
 
-**Phase 3 DoD calendar gate (passive).** Daily-ingest cron is at 1 of 3
-required green firings. Next two are scheduled for 2026-05-23 ~03:00 UTC
-and 2026-05-24 ~03:00 UTC (free-tier delay of a few hours is normal). No
-action required — check `gh run list --workflow=daily-ingest.yml --limit 5`
-on each of those days. Once the third lands, Phase 3 is DoD-complete.
+**Phase 3 DoD calendar gate (passive).** Daily-ingest cron is at **2 of 3**
+required green firings (latest: `gh run 26325458004` on 2026-05-23
+06:11:42 UTC, 12m22s green). One more required (2026-05-24 ~03:00 UTC,
+free-tier delays of a few hours normal). No action required — check
+`gh run list --workflow=daily-ingest.yml --limit 5` once on 2026-05-24
+to confirm. Once the third lands, Phase 3 DoD closes.
 
-**Active: Phase 2 Sprint 2 PR-E (per-ratio drilldown).** The Sprint 2
-plan is locked at `~/.claude/plans/zippy-pondering-volcano.md`. PR-A
-through PR-D have all landed (#12 / #13 / #14 / #16), with PR #15 in
-between to ship the Vitest infra. **PR-E is the last Sprint 2 item;
-once it lands, Phase 2 DoD is closed and Phase 4 starts.**
+**Sprint 2 / Phase 2 is DoD-complete.** All five planned PRs landed
+(A/B/C/D/E = #12 / #13 / #14 / #16 / #18), plus the Vitest infra PR
+(#15) between PR-C and PR-D and the post-plan cell-context-tooltip
+addition (PR-F = #17) between PR-D and PR-E. The matrix renders all 30
+ratios with sort, collapse, heat map, regulatory flags, cell-context
+tooltips, and per-ratio drilldown navigation. Per-route bundle: matrix
+client chunks unchanged from pre-PR-E; Recharts isolated to the
+drilldown chunk only. **Next active scope is Phase 4 polish.**
 
-PR-E scope (from the plan, lines 234+):
+### Active: Phase 4 polish
 
-- New route at `/ratio/[ratio_id]` — server-rendered drilldown for a
-  single ratio across all peers + 8 quarters of history.
-- 8-quarter trend chart (`Recharts` `LineChart`, one line per peer with
-  the anchor highlighted). Add `recharts@^2` (~90 KB gzipped) to
-  dependencies. **Make sure `next build` confirms `recharts` is bundled
-  only into the `/ratio/[id]` chunk, not the matrix page** — Recharts
-  is the only PR-E runtime dependency add, and matrix-page bundle
-  bloat would regress the <1s DoD target.
-- Strip plot via Recharts `ScatterChart` (not box plot — N=5 peers is
-  statistically thin; a box plot's quartile box is meaningless with 5
-  observations).
-- Link from each ratio name in the matrix `<a href={'/ratio/' + ratio_id}>`
-  (or `Link` with prefetch). Server-render the drilldown to keep TTFB
-  in the same band as the matrix page.
-- Re-use the existing pure helpers where applicable. New per-ratio
-  data query in `web/lib/queries.ts` for the 8-quarter × 5-peer cross-
-  section. No new pipeline changes — drilldown reads the same `ratios`
-  table.
+Phase 4 is 2.5 days per `PLAN.md` v1.3. Recommended sub-phase order
+(from the prior handoff, unchanged — Excel + design pass are the two
+highest-signal interview artifacts; insights are easier after the
+design pass locks the visual vocabulary):
 
-Branch `phase-2-ratio-drilldown` (or similar). Same flow as PR-D:
-implement helpers + page + tests, local verify (`npm test` + build +
-lint + pytest), push, open PR, `/codex review` + `design-critic` in
-parallel, fix any P1/P2s on-branch, squash-merge. Heavy visual diff
-(charts) → design-critic is high-value here too.
+1. **Phase 4.2 — Excel comp workbook export** — `uv run peerbench
+   export --quarter YYYY-Qn --output ./output/`. Reads from the same
+   `ratios` table the dashboard uses. Six tabs: Cover, Summary, Comp
+   Sheets, Time Series by category, Restatement Log, Methodology.
+   Specs in `PLAN.md` v1.3. **Pure read from `ratios` — no recompute,
+   per CLAUDE.md "no formula logic in the Excel export layer."** Good
+   first sub-phase: stretches the existing `ratios` data, exercises
+   the Python side that's been quiet since Phase 1, and produces a
+   tangible deliverable.
+2. **Phase 4.3 — Banking design pass** — tabular-nums everywhere,
+   conditional-formatting parity between dashboard and Excel, print
+   CSS verified by printing Summary + one Comp Sheet drilldown to
+   PDF. Two known cleanups belong here: (a) the anchor tint `6%`
+   hardcoded inline-style P3 from earlier Sprint 2 work; (b)
+   design-critic's two PR-E follow-ups — design.md §Typography
+   needs a "Recharts text uses `--text-table-data` for ticks /
+   `--text-superscript` for axis labels" line, and §Anchor
+   highlighting needs a "trend-chart anchor is `--color-accent`
+   2.5px stroke drawn last" line. PR-E's `web/lib/chart-tokens.ts`
+   is the canonical bridge between CSS tokens and Recharts numeric
+   `fontSize`.
+3. **Phase 4.1 — Insights generation** — `/insight <cert> <quarter>`
+   slash command + skill. 3 commentary bullets per peer/quarter
+   pair, citing specific schedules (RC-C, RC-K, RC-R).
+4. **Phase 4.4 — Polish** — README, ARCHITECTURE.md, screenshots,
+   one Loom.
 
-Sprint 2 = Phase 2 DoD complete. After it lands, Phase 4 polish (insights +
-Excel export + banking design pass + README/Loom) is the only thing left.
+### Phase 4 follow-ups from earlier work (also tracked)
 
-### Then: Phase 4 kickoff
+Carry these into the relevant Phase 4 sub-phase:
 
-Phase 4 is 2.5 days of polish per `PLAN.md` v1.3:
-
-1. **Insights generation** — `/insight <cert> <quarter>` slash
-   command + skill. 3 commentary bullets per peer/quarter pair,
-   citing specific schedules (RC-C, RC-K, RC-R).
-2. **Excel comp workbook export** — `uv run peerbench export --quarter
-   YYYY-Qn --output ./output/`. Reads from the same `ratios` table the
-   dashboard uses. Six tabs: Cover, Summary, Comp Sheets, Time Series
-   by category, Restatement Log, Methodology. Specs in `PLAN.md` v1.3.
-3. **Banking design pass** — tabular-nums everywhere, conditional
-   formatting parity with the dashboard, print CSS verified by printing
-   Summary + one Comp Sheet drilldown to PDF. The anchor tint `6%`
-   hardcoded inline-style P3 cleanup belongs here.
-4. **Polish** — README, ARCHITECTURE.md, screenshots, one Loom.
-
-Recommended sub-phase order: Phase 4.2 (Excel export) → Phase 4.3
-(design pass) → Phase 4.1 (insights) → Phase 4.4 (polish). Reasoning:
-Excel export and design pass are the two highest-signal interview
-artifacts; insights generation is more ergonomic if the design pass
-has already locked the visual vocabulary.
+- **`cre_rbc_growth_36mo` pipeline ratio** (locked Sprint 2 PR-D
+  deferral). SR 07-1 §III.A 36-month growth gate. Compute trailing
+  growth in the pipeline (not TS) and persist as a new ratio so the
+  CRE amber/red flags can finally fire conditionally on growth + the
+  300%/400% trip wires. Belongs in Phase 4.1 or 4.2.
+- **Sentry-by-default env var split**, **anchor tint `6%` inline-style
+  P3 cleanup**, **eyebrow-label token rename** (design-critic PR-E
+  soft #4) — all small; bundle in Phase 4.3 design pass.
 
 ## Definition of done for Phase 3 (per `PLAN.md` v1.3)
 
 | DoD bullet | State |
 | :--- | :--- |
 | Production deploy live | ✅ |
-| Daily ingest cron green 3 consecutive days | 1 of 3 (calendar wait) |
+| Daily ingest cron green 3 consecutive days | 2 of 3 (one more calendar wait) |
 | Weekly backup cron green ≥ 1 firing | ✅ |
 | Sentry receiving events | ✅ (30 server transactions) |
 | Dashboard load <1 s | ✅ (warm TTFB 330–600 ms; PR-D rebuild measured 538 ms) |
 | Restatement markers correct on 5 expected cells | ✅ |
 
-Calendar gate `2026-05-23` + `2026-05-24` is the only remaining bullet.
-Once those tick, Phase 3 is DoD-complete.
+Calendar gate `2026-05-24` is the only remaining bullet. Once it ticks
+green, Phase 3 is DoD-complete.
+
+## Definition of done for Phase 2 (per `PLAN.md` v1.3)
+
+| DoD bullet | State |
+| :--- | :--- |
+| All 30 ratios render for all peers | ✅ |
+| Page load <1 s | ✅ (warm TTFB 330–600 ms across Sprint 2 PRs) |
+| Restatement indicator surfaces on affected cells | ✅ (PR-A tooltip + 5 `r` superscripts on 2025-Q4 data) |
+| All pages conform to `docs/design.md` | ✅ (design-critic cleared PR-D + PR-F + PR-E; 5 deferred items tracked into Phase 4.3 design pass) |
+| Interaction: sort, collapse, drilldown | ✅ (PR-B sort, PR-C collapse, PR-E drilldown) |
+| Conditional formatting + regulatory flags | ✅ (PR-D heat map + amber/red `△`) |
+| Cell context discoverability | ✅ (PR-F `●` + anchor tooltip; post-plan addition) |
+
+**Phase 2 is DoD-complete.**
