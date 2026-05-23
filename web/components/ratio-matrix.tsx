@@ -414,7 +414,7 @@ function DataCell({
             <button
               type="button"
               className={[
-                "ml-0.5 cursor-help align-super text-[10px] leading-none rounded-sm",
+                "ml-0.5 cursor-help align-super text-superscript leading-none rounded-sm",
                 "focus:outline-none focus-visible:outline-1 focus-visible:outline-accent",
                 threshold.level === "red" ? "text-negative" : "text-amber",
               ].join(" ")}
@@ -436,7 +436,7 @@ function DataCell({
           <TooltipTrigger asChild>
             <button
               type="button"
-              className="ml-0.5 cursor-help align-super text-[10px] leading-none text-text-secondary rounded-sm focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+              className="ml-0.5 cursor-help align-super text-superscript leading-none text-text-secondary rounded-sm focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
               aria-label={`Underlying input ${restated.field_code} restated since first publication`}
             >
               r
@@ -509,7 +509,7 @@ function RegulatoryFlagTooltipBody({
       </div>
       <div className="text-text-secondary">{threshold.citation}</div>
       {threshold.footnote && (
-        <div className="text-text-tertiary text-[10px]">
+        <div className="text-text-tertiary text-superscript">
           {threshold.footnote}
         </div>
       )}

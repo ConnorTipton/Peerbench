@@ -48,6 +48,7 @@ Never use full-saturation fills on data cells.
 | `--text-section-header` | 16px  | Section H2              |
 | `--text-body`           | 14px  | Body, controls, labels  |
 | `--text-table-data`     | 12px  | Table cells, dense data |
+| `--text-superscript`    | 10px  | Inline annotation markers (restatement `r`, regulatory `△` flag) |
 
 Weights: 600 for headers, 500 for section labels, 400 for body and data cells.
 
