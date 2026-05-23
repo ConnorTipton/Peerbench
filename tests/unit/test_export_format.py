@@ -46,4 +46,4 @@ def test_format_delta_bps_none() -> None:
 
 def test_format_delta_bps_rounds_to_nearest_basis_point() -> None:
     assert format_delta_bps(Decimal("0.00500"), Decimal("0")) == "+50 bps"
-    assert format_delta_bps(Decimal("0.000049"), Decimal("0")) == "+0 bps"
+    assert format_delta_bps(Decimal("0.000049"), Decimal("0")) == "0 bps"

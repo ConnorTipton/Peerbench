@@ -27,6 +27,8 @@ def format_delta_bps(anchor: Decimal | None, peer: Decimal | None) -> str:
         return EM_DASH
     delta = anchor - peer
     bps = int((delta * Decimal(10000)).quantize(Decimal("1")))
+    if bps == 0:
+        return "0 bps"
     if bps < 0:
         return f"({abs(bps)} bps)"
     return f"+{bps} bps"
