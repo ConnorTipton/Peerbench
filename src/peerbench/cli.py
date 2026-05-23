@@ -385,7 +385,11 @@ def validate(
 
 
 def _resolve_latest_quarter_id(session: Session) -> str:
-    """Return MAX(quarters.quarter_id). Raises ValueError if the table is empty."""
+    """Return MAX(quarters.quarter_id). Raises ValueError if the table is empty.
+
+    Correctness relies on quarter_id following the 'YYYY-Qn' format (e.g.
+    '2025-Q4'), where lexicographic order coincides with chronological order.
+    """
     latest = session.scalar(select(func.max(Quarter.quarter_id)))
     if latest is None:
         raise ValueError("no quarters in DB — run `peerbench ingest` first")
