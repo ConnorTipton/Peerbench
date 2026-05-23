@@ -7,6 +7,7 @@ import {
   type ColumnDef,
   type RowData,
 } from "@tanstack/react-table";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState, useTransition } from "react";
 
@@ -231,9 +232,12 @@ export function RatioMatrix({
           );
         }
         return (
-          <span className="text-table-data text-text">
+          <Link
+            href={`/ratio/${r.def.ratio_id}`}
+            className="rounded-sm text-table-data text-text underline decoration-transparent decoration-1 underline-offset-2 transition-colors duration-200 ease-in-out hover:text-accent hover:decoration-accent focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+          >
             {r.def.display_name}
-          </span>
+          </Link>
         );
       },
     };
