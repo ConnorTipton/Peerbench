@@ -18,8 +18,9 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
 
 from peerbench.config import get_settings
 from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
@@ -383,11 +384,19 @@ def validate(
         raise typer.Exit(code=1)
 
 
+def _resolve_latest_quarter_id(session: Session) -> str:
+    """Return MAX(quarters.quarter_id). Raises ValueError if the table is empty."""
+    latest = session.scalar(select(func.max(Quarter.quarter_id)))
+    if latest is None:
+        raise ValueError("no quarters in DB — run `peerbench ingest` first")
+    return latest
+
+
 @app.command("export")
 def export_cmd(
     quarter: Annotated[
         str,
-        typer.Option("--quarter", help="Quarter ID 'YYYY-Qn' (e.g. 2025-Q4)"),
+        typer.Option("--quarter", help="Quarter ID 'YYYY-Qn' (e.g. 2025-Q4) or 'latest'"),
     ],
     output: Annotated[
         Path,
@@ -409,10 +418,13 @@ def export_cmd(
         raise typer.Exit(code=2)
     with get_session() as session:
         try:
+            resolved_quarter = (
+                _resolve_latest_quarter_id(session) if quarter == "latest" else quarter
+            )
             out_path = run_export(
                 session,
                 anchor_cert=anchor,
-                quarter_id=quarter,
+                quarter_id=resolved_quarter,
                 out_dir=output,
             )
         except ValueError as e:
