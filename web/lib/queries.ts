@@ -182,16 +182,29 @@ export async function getRatioTimeSeries(
   if (!defRes.data) return null;
   const ratioDef = defRes.data as RatioDef;
 
-  // Pull all distinct quarter_ids that have at least one row for THIS ratio,
-  // newest first; take the top `windowSize`. The same correctness argument
-  // as `getMatrixData`: anchoring on `quarters` directly would surface a
-  // freshly-ingested empty quarter at the right edge of the trend chart.
-  const ratioQuartersRes = await supabase
-    .from("ratios")
-    .select("quarter_id")
-    .eq("ratio_id", ratioId)
-    .order("quarter_id", { ascending: false });
+  // Pull (a) all distinct quarter_ids that have at least one row for THIS
+  // ratio (newest first; take the top `windowSize`) and (b) the active peer
+  // set in parallel — institutions are orthogonal to quarter discovery and
+  // must always be returned. Returning `institutions: []` on the empty-data
+  // branch (e.g. `top_loan_cat`, where the handler raises NotImplementedError
+  // so the ratio has no `ratios` rows) silently broke the drilldown's
+  // anchor validation: any valid `?anchor=` would fail membership and the
+  // back-link to the matrix would drop the user's selection.
+  //
+  // Anchoring quarter discovery on `ratios` (not `quarters`) is the same
+  // correctness argument as `getMatrixData`: an ingest that wrote a
+  // `quarters` row before compute populated it would surface as a
+  // freshly-empty quarter at the right edge of the trend chart.
+  const [ratioQuartersRes, institutionsRes] = await Promise.all([
+    supabase
+      .from("ratios")
+      .select("quarter_id")
+      .eq("ratio_id", ratioId)
+      .order("quarter_id", { ascending: false }),
+    supabase.from("institutions").select("*").eq("active", true),
+  ]);
   if (ratioQuartersRes.error) throw ratioQuartersRes.error;
+  if (institutionsRes.error) throw institutionsRes.error;
   // Stream is already DESC-ordered by the .order(...) clause above; pull the
   // first `windowSize` distinct quarter_ids (one row per (cert, quarter) so
   // the same quarter_id repeats up to peer-count times).
@@ -199,24 +212,26 @@ export async function getRatioTimeSeries(
     ratioQuartersRes.data as { quarter_id: string }[],
     windowSize,
   );
+  const institutions = sortInstitutions(institutionsRes.data as Institution[]);
 
   if (recentQuarterIds.length === 0) {
-    // Ratio is registered but has never produced a row — render an empty state.
+    // Ratio is registered but has never produced a row — render an empty
+    // state. Institutions are still returned so anchor validation in the
+    // route handler accepts any active peer's cert.
     return {
       ratioDef,
       quarters: [],
-      institutions: [],
+      institutions,
       values: new Map(),
     };
   }
 
-  const [quartersRes, institutionsRes, ratiosRes] = await Promise.all([
+  const [quartersRes, ratiosRes] = await Promise.all([
     supabase
       .from("quarters")
       .select("*")
       .in("quarter_id", recentQuarterIds)
       .order("report_date", { ascending: true }),
-    supabase.from("institutions").select("*").eq("active", true),
     supabase
       .from("ratios")
       .select("*")
@@ -224,11 +239,9 @@ export async function getRatioTimeSeries(
       .in("quarter_id", recentQuarterIds),
   ]);
   if (quartersRes.error) throw quartersRes.error;
-  if (institutionsRes.error) throw institutionsRes.error;
   if (ratiosRes.error) throw ratiosRes.error;
 
   const quarters = quartersRes.data as Quarter[];
-  const institutions = sortInstitutions(institutionsRes.data as Institution[]);
 
   const values = new Map<string, MatrixCell>();
   for (const row of ratiosRes.data as RatioValue[]) {
