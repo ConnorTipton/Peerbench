@@ -434,6 +434,9 @@ function DataCell({
   const isNegative = cell.value !== null && cell.value < 0;
   const quartileIndicatorBucket: "top" | "bottom" | null =
     !threshold && (bucket === "top" || bucket === "bottom") ? bucket : null;
+  const quartileRank = quartileIndicatorBucket
+    ? describeRank(quartileIndicatorBucket, direction, ratioName)
+    : null;
   return (
     <span
       style={{
@@ -474,16 +477,14 @@ function DataCell({
                 "focus:outline-none focus-visible:outline-1 focus-visible:outline-accent",
                 quartileIndicatorBucket === "top" ? "text-positive" : "text-negative",
               ].join(" ")}
-              aria-label={`${ratioName} ${quartileIndicatorBucket}-tint quartile indicator`}
+              aria-label={quartileRank?.rankLine ?? ""}
             >
               ●
             </button>
           </TooltipTrigger>
           <TooltipContent side="top" align="center">
             <QuartileTooltipBody
-              bucket={quartileIndicatorBucket}
-              direction={direction}
-              ratioName={ratioName}
+              rank={quartileRank}
               value={cell.value}
               peerMedian={peerMedian}
             />
@@ -577,26 +578,23 @@ function RegulatoryFlagTooltipBody({
 }
 
 function QuartileTooltipBody({
-  bucket,
-  direction,
-  ratioName,
+  rank,
   value,
   peerMedian,
 }: {
-  bucket: "top" | "bottom";
-  direction: RatioDirection;
-  ratioName: string;
+  rank: { rankLine: string; directionLine: string } | null;
   value: number | null;
   peerMedian: number | null;
 }) {
-  const { rankLine, directionLine } = describeRank(bucket, direction, ratioName);
+  if (!rank) return null;
   return (
     <div className="space-y-0.5">
-      <div className="font-medium">{rankLine}</div>
+      <div className="font-medium">{rank.rankLine}</div>
       <div>
-        {formatRatio(value)} vs peer median {formatRatio(peerMedian)}
+        <span className="font-medium">{formatRatio(value)}</span> vs peer median{" "}
+        <span className="font-medium">{formatRatio(peerMedian)}</span>
       </div>
-      <div className="text-text-secondary">{directionLine}</div>
+      <div className="text-text-secondary">{rank.directionLine}</div>
     </div>
   );
 }
