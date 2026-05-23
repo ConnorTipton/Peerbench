@@ -35,6 +35,14 @@ export function cellKey(cert: number, ratioId: string): string {
   return `${cert}|${ratioId}`;
 }
 
+// Drilldown route holds one ratio constant and varies (cert, quarter_id),
+// the inverse of the matrix. Kept as a separate helper so the call sites
+// document which axis is being held constant — silently sharing `cellKey`'s
+// signature would invite the wrong tuple at one of the call sites.
+export function timeSeriesPointKey(cert: number, quarterId: string): string {
+  return `${cert}|${quarterId}`;
+}
+
 // Keyed by `(cert, ratio_id)` so the `r` superscript only renders on cells
 // whose underlying inputs actually moved. The field→ratio resolution lives in
 // queries.ts (server-side) using the handler-derived snapshot at
