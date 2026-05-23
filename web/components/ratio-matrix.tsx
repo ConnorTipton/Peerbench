@@ -36,7 +36,11 @@ import {
   type Bucket,
   type QuartileCutoffs,
 } from "@/lib/heatmap";
-import { directionFor } from "@/lib/heatmap-directions";
+import {
+  directionFor,
+  type RatioDirection,
+} from "@/lib/heatmap-directions";
+import { describeRank } from "@/lib/heatmap-tooltip";
 import {
   resolveThreshold,
   type ThresholdResult,
@@ -237,12 +241,20 @@ export function RatioMatrix({
       id: `inst-${inst.cert}`,
       meta: { cert: inst.cert },
       header: () => (
-        <SortHeader
-          name={inst.name}
-          cert={inst.cert}
-          dir={sort?.cert === inst.cert ? sort.dir : null}
-          onClick={() => applySort(inst.cert)}
-        />
+        <>
+          <SortHeader
+            name={inst.name}
+            dir={sort?.cert === inst.cert ? sort.dir : null}
+            onClick={() => applySort(inst.cert)}
+          />
+          {inst.cert === anchorCert ? (
+            <AnchorCertTrigger name={inst.name} cert={inst.cert} />
+          ) : (
+            <span className="block text-table-data text-text-tertiary">
+              Cert {inst.cert}
+            </span>
+          )}
+        </>
       ),
       cell: ({ row }) => {
         const r = row.original;
@@ -250,18 +262,31 @@ export function RatioMatrix({
         const c = cells.get(cellKey(inst.cert, r.def.ratio_id));
         const restated = restatedDetails.get(restatementKey(inst.cert, r.def.ratio_id));
         const threshold = c ? resolveThreshold(r.def, c.value) : null;
+        const cutoffs = cutoffsByRatio.get(r.def.ratio_id) ?? null;
+        const direction = directionFor(r.def.ratio_id);
+        // Mirror the row-level layer precedence: regulatory flag replaces
+        // quartile bucket. Bucket lights up the `●` indicator only when no
+        // `△` is shown (`composeCellBg` enforces the same rule for the
+        // background tint).
+        const bucket: Bucket = threshold
+          ? "none"
+          : bucketForCell(c?.value ?? null, cutoffs, direction);
+        const peerMedian = cutoffs?.median ?? null;
         return (
           <DataCell
             cell={c}
             restated={restated}
             threshold={threshold}
+            bucket={bucket}
+            direction={direction}
+            peerMedian={peerMedian}
             ratioName={r.def.display_name}
           />
         );
       },
     }));
     return [ratioColumn, ...peerColumns];
-  }, [institutions, cells, restatedDetails, sort, applySort]);
+  }, [institutions, cells, restatedDetails, cutoffsByRatio, anchorCert, sort, applySort]);
 
   const table = useReactTable({
     data: visibleRows,
@@ -389,11 +414,17 @@ function DataCell({
   cell,
   restated,
   threshold,
+  bucket,
+  direction,
+  peerMedian,
   ratioName,
 }: {
   cell: MatrixCell | undefined;
   restated: RestatedDetail | undefined;
   threshold: ThresholdResult | null;
+  bucket: Bucket;
+  direction: RatioDirection;
+  peerMedian: number | null;
   ratioName: string;
 }) {
   if (!cell) {
@@ -401,6 +432,11 @@ function DataCell({
   }
   const formatted = formatRatio(cell.value);
   const isNegative = cell.value !== null && cell.value < 0;
+  const quartileIndicatorBucket: "top" | "bottom" | null =
+    !threshold && (bucket === "top" || bucket === "bottom") ? bucket : null;
+  const quartileRank = quartileIndicatorBucket
+    ? describeRank(quartileIndicatorBucket, direction, ratioName)
+    : null;
   return (
     <span
       style={{
@@ -427,6 +463,30 @@ function DataCell({
             <RegulatoryFlagTooltipBody
               threshold={threshold}
               ratioName={ratioName}
+            />
+          </TooltipContent>
+        </Tooltip>
+      )}
+      {quartileIndicatorBucket && (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className={[
+                "ml-0.5 cursor-help align-super text-superscript leading-none rounded-sm",
+                "focus:outline-none focus-visible:outline-1 focus-visible:outline-accent",
+                quartileIndicatorBucket === "top" ? "text-positive" : "text-negative",
+              ].join(" ")}
+              aria-label={quartileRank?.rankLine ?? ""}
+            >
+              ●
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="top" align="center">
+            <QuartileTooltipBody
+              rank={quartileRank}
+              value={cell.value}
+              peerMedian={peerMedian}
             />
           </TooltipContent>
         </Tooltip>
@@ -517,6 +577,67 @@ function RegulatoryFlagTooltipBody({
   );
 }
 
+function QuartileTooltipBody({
+  rank,
+  value,
+  peerMedian,
+}: {
+  rank: { rankLine: string; directionLine: string } | null;
+  value: number | null;
+  peerMedian: number | null;
+}) {
+  if (!rank) return null;
+  return (
+    <div className="space-y-0.5">
+      <div className="font-medium">{rank.rankLine}</div>
+      <div>
+        <span className="font-medium">{formatRatio(value)}</span> vs peer median{" "}
+        <span className="font-medium">{formatRatio(peerMedian)}</span>
+      </div>
+      <div className="text-text-secondary">{rank.directionLine}</div>
+    </div>
+  );
+}
+
+function AnchorCertTrigger({ name, cert }: { name: string; cert: number }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className="block w-full cursor-help rounded-sm text-right text-table-data text-text-tertiary focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
+          aria-label={`${name} is the anchor bank — navy tint marks this column`}
+        >
+          Anchor · Cert {cert}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom" align="end">
+        <AnchorHeaderTooltipBody name={name} cert={cert} />
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function AnchorHeaderTooltipBody({
+  name,
+  cert,
+}: {
+  name: string;
+  cert: number;
+}) {
+  return (
+    <div className="space-y-0.5">
+      <div>
+        <span className="font-medium">{name}</span> · anchor bank (Cert {cert})
+      </div>
+      <div className="text-text-secondary">
+        Navy tint marks the anchor column for visual reference. Switch via
+        the bank selector.
+      </div>
+    </div>
+  );
+}
+
 // Fields where old_value/new_value are NOT dollar amounts. Today only
 // CBLRIND (Community Bank Leverage Ratio election flag, 0/1). Add to the
 // set when new non-dollar fields enter the handler dependency graph.
@@ -571,12 +692,10 @@ function SectionToggle({
 
 function SortHeader({
   name,
-  cert,
   dir,
   onClick,
 }: {
   name: string;
-  cert: number;
   dir: SortDir | null;
   onClick: () => void;
 }) {
@@ -597,7 +716,6 @@ function SortHeader({
           {indicator}
         </span>
       </span>
-      <span className="block text-text-tertiary">Cert {cert}</span>
     </button>
   );
 }

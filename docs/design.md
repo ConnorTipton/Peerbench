@@ -48,7 +48,7 @@ Never use full-saturation fills on data cells.
 | `--text-section-header` | 16px  | Section H2              |
 | `--text-body`           | 14px  | Body, controls, labels  |
 | `--text-table-data`     | 12px  | Table cells, dense data |
-| `--text-superscript`    | 10px  | Inline annotation markers (restatement `r`, regulatory `△` flag) |
+| `--text-superscript`    | 10px  | Inline annotation markers (restatement `r`, regulatory `△` flag, quartile `●` indicator) |
 
 Weights: 600 for headers, 500 for section labels, 400 for body and data cells.
 
@@ -74,6 +74,14 @@ Direction-aware cell tinting on data tables.
 - **Middle two quartiles:** no fill.
 - **Direction-aware per ratio.** Higher NIM = positive (green). Higher efficiency ratio = negative (red). CRE concentration: amber above 300%, red above 400% (regulatory thresholds, not quartile-based; see `lib/regulatory-thresholds.ts`).
 - Quartile cutoffs are computed per ratio across the currently visible peer set, not against a fixed reference.
+- **Cell `●` indicator.** Every quartile-tinted cell (top or bottom, but NOT regulatory-flagged) carries a small focusable `●` superscript in `--text-superscript`, colored `--color-positive` (top) or `--color-negative` (bottom). Hover/focus opens a 3-line tooltip: rank (e.g. "Top quartile for NIM"), value vs peer median, and a direction explanation. The `●` is rendered RIGHT of the value, in the same slot as the regulatory `△` and the restatement `r` — `△` and `●` never coexist on the same cell because regulatory tint replaces quartile tint per the layer-precedence rule.
+
+## Anchor highlighting
+
+The anchor column (currently MidFirst, Cert 4063) gets a low-opacity `--color-primary` tint across every cell so the user can locate it without scanning bank names. The anchor tint is the lowest layer in the per-cell background; quartile and regulatory tints layer on top.
+
+- **Cert subtitle as tooltip trigger.** For the anchor column only, the cert subtitle in the column header reads `Anchor · Cert <n>` and is a focusable `<button>` wrapped in a Radix tooltip. Hover/focus reveals the bank name, the anchor designation, and how to switch via the bank selector. Non-anchor columns keep the plain `Cert <n>` text.
+- Switching the anchor via the selector re-applies the tint to the new column. The cert subtitle text and tooltip update accordingly with no extra plumbing — both are derived from `anchorCert` at render time.
 
 ## Restatement indicator
 
