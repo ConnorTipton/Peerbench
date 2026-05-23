@@ -68,4 +68,11 @@ describe("fetchWorkbookManifest", () => {
     );
     expect(await fetchWorkbookManifest()).toBeNull();
   });
+
+  it("returns null when NEXT_PUBLIC_SUPABASE_URL is unset", async () => {
+    vi.unstubAllEnvs();
+    vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "");
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    expect(await fetchWorkbookManifest()).toBeNull();
+  });
 });

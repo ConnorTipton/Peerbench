@@ -8,6 +8,8 @@
  * The bucket is uploaded to by the daily-ingest GitHub Action.
  */
 
+import "server-only";
+
 export type WorkbookManifest = {
   url: string;
   generatedAt: string; // ISO-8601 UTC
