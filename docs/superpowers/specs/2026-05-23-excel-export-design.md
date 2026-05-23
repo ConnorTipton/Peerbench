@@ -216,24 +216,39 @@ peer Q-3 | peer Q-2 | peer Q-1 | peer Q | Δ Q (anchor − peer current).
 The four anchor columns and four peer columns each sit under a merged
 "Anchor" / "Peer" header band.
 
-Rows (8): Interest income, Interest expense, Net interest income, Provision,
-Non-interest income, Non-interest expense, Pre-tax income, Net income.
+Rows (7): Interest income (`INTINC`), Interest expense (`EINTEXP`),
+Net interest income (`NIM`), Provision for credit losses (`ELNATR`),
+Non-interest income (`NONII`), Non-interest expense (`NONIX`),
+Net income (`NETINC`).
+
+Pre-tax income deliberately omitted — FDIC's tracked YTD $ field set does
+not expose a clean "income before income taxes" code (`IBEFTAX*` variants
+are all qtly % international-ops series). The seven-line I/S still gives
+the analyst the full revenue/expense waterfall.
 
 All values read from `facts` (YTD as reported for the quarter); FFIEC
-convention is thousands of dollars. **Field code mapping locked during
-implementation against `data/fdic_field_reference.csv`** — listed in the
-plan, not here, to avoid duplicating a 30-second cross-check.
+convention is thousands of dollars. `ELNATR` is the one code in this list
+not yet tracked by the pipeline — the implementation plan adds it to
+`INCOME_FIELDS` in `peerbench.fdic_fields` and backfills via `peerbench
+ingest`.
 
 #### Section B: Balance sheet (period-end, latest quarter)
 
 4 columns: line item | anchor EOP | peer EOP | Δ.
 
-Rows (7): Total assets, Loans (gross), Securities (AFS+HTM total),
-Cash & equivalents, Total deposits, Borrowings, Total equity.
+Rows (7): Total assets (`ASSET`), Loans gross (`LNLSGR`), Securities
+(`SC`), Cash & equivalents (`CHBAL`), Total deposits (`DEP`),
+Total liabilities (`LIAB`), Total equity (`EQ`).
+
+"Borrowings" deliberately replaced with Total liabilities — the project's
+tracked field set has no single YTD $ "other borrowed money" code, and
+deriving `LIAB − DEP` would cross the "no formula logic in export" line.
+Total liabilities preserves the assets-vs-funding-vs-equity narrative the
+analyst expects from a comp sheet.
 
 TCE deliberately excluded — TCE/TA appears in the ratios block below;
 including TCE as a line would require a derivation (`EQ − INTAN`), which
-crosses the "no formula logic in export" line in CLAUDE.md.
+crosses the same line.
 
 #### Section C: Ratios block
 
@@ -521,12 +536,12 @@ tests on the writer.
 
 Tracked separately for Phase 4.3 or the implementation plan, not blocking:
 
-1. **FDIC field code mapping for I/S + B/S lines** — exact codes
-   (`INTINC`, `EINTEXP`, `NIM`, `ELNATR`, `NONII`, `NONIX`, `IBEFTAX`,
-   `NETINC` for I/S; `ASSET`, `LNLSGR`, `SC`, `CHBAL`, `DEP`, …, `EQ` for
-   B/S) confirmed against `data/fdic_field_reference.csv` during plan
-   step 1. Listed here as a checklist item so we don't paper over a
-   mis-mapped cell.
+1. **FDIC field codes for I/S + B/S** — verified against
+   `data/fdic_field_reference.csv` during spec self-review. I/S uses
+   `INTINC, EINTEXP, NIM, ELNATR, NONII, NONIX, NETINC`; B/S uses
+   `ASSET, LNLSGR, SC, CHBAL, DEP, LIAB, EQ`. `ELNATR` is the one code
+   missing from `INCOME_FIELDS` today; the implementation plan adds it
+   and re-ingests.
 2. **Plain-English ratio meaning column** — Comp Sheet ratios block ships
    *without* the plain-English column to keep scope tight. Add later by
    either a new `ratio_defs.plain_english` schema column or a const map
