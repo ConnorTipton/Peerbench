@@ -4,7 +4,15 @@ from __future__ import annotations
 
 from typing import Any
 
+from peerbench.export.data.comp_sheet import (
+    BALANCE_SHEET_LINES,
+    INCOME_STATEMENT_LINES,
+)
 from peerbench.export.data.types import RestatementRow, RestatementTab
+
+_COMP_SHEET_FIELDS: frozenset[str] = frozenset(
+    line.field_code for line in (*INCOME_STATEMENT_LINES, *BALANCE_SHEET_LINES)
+)
 
 
 def derive_affected_ratios(
@@ -34,7 +42,7 @@ def build_restatement_log(
             continue
         field_code = str(ev["field_code"])
         affected = derive_affected_ratios(field_code, field_deps)
-        if not affected:
+        if not affected and field_code not in _COMP_SHEET_FIELDS:
             continue
         cert = int(ev["cert"])
         rows.append(

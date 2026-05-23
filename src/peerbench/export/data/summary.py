@@ -57,6 +57,8 @@ def build_summary(
     for r in ratio_defs:
         direction = direction_for(r.ratio_id)
         anchor_value = ratios_by_cert.get(anchor_cert, {}).get(r.ratio_id)
+        if (anchor_cert, r.ratio_id) in suppressed:
+            anchor_value = None
 
         peer_values_full: dict[int, Decimal | None] = {}
         peer_values_for_stats: list[Decimal] = []
@@ -97,8 +99,8 @@ def build_summary(
                 anchor_rank=rank,
                 delta_vs_median=delta,
                 direction=direction,
-                amber_pct=Decimal(amber_pct_raw) / 100 if amber_pct_raw else None,
-                red_pct=Decimal(red_pct_raw) / 100 if red_pct_raw else None,
+                amber_pct=Decimal(str(amber_pct_raw)) / 100 if amber_pct_raw is not None else None,
+                red_pct=Decimal(str(red_pct_raw)) / 100 if red_pct_raw is not None else None,
             )
         )
     return SummaryTab(institution_columns=[anchor, *peers], rows=rows)

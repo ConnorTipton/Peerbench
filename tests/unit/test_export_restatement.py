@@ -125,6 +125,28 @@ def test_build_restatement_log_bank_name_fallback() -> None:
     assert tab.rows[0].bank_name == "Cert 9999"
 
 
+def test_build_restatement_log_includes_comp_sheet_field_with_no_ratio() -> None:
+    # ELNATR is in Comp Sheet I/S but read by zero ratio handlers — the log
+    # must still surface the event so the audit trail isn't silently lost.
+    events = [
+        _make_event(
+            quarter_id="2025-Q4",
+            field_code="ELNATR",
+            cert=4063,
+            old=Decimal("100"),
+            new=Decimal("120"),
+        ),
+    ]
+    tab = build_restatement_log(
+        events,
+        bank_names={4063: "MidFirst"},
+        field_deps={"nim": ["INTINC"]},  # no ratio reads ELNATR
+        window={"2025-Q4"},
+    )
+    assert len(tab.rows) == 1
+    assert tab.rows[0].affected_ratios == []  # no ratio impact but still logged
+
+
 def _make_event(
     *,
     cert: int,

@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from peerbench.db import Fact, Institution, QualityLog, Quarter, Ratio, RatioDef
@@ -107,7 +107,9 @@ def run_export(
     for cert, qid, code, value in fact_rows:
         facts.setdefault((cert, qid), {})[code] = value
 
-    ratio_defs = list(session.scalars(select(RatioDef)).all())
+    ratio_defs = list(
+        session.scalars(select(RatioDef).order_by(RatioDef.category, RatioDef.ratio_id)).all()
+    )
     field_deps = json.loads(FIELD_DEPS_PATH.read_text(encoding="utf-8"))
 
     restatement_events = [
@@ -129,13 +131,22 @@ def run_export(
     anchor_pair = (anchor_cert, anchor.name)
     peer_pairs = [(p.cert, p.name) for p in peers]
 
+    data_vintage_dt = (
+        session.scalar(
+            select(func.max(Fact.last_updated_at))
+            .where(Fact.cert.in_(cert_set))
+            .where(Fact.quarter_id.in_(window_quarters))
+        )
+        or quarter.ingest_at
+    )
+
     cover = build_cover(
         anchor_cert=anchor_cert,
         anchor_name=anchor.name,
         quarter_id=quarter_id,
         quarter_end_date=quarter.report_date,
         generated_at=datetime.now(UTC),
-        data_vintage=quarter.ingest_at,
+        data_vintage=data_vintage_dt,
         anchor_has_no_ratios=not ratios_for_quarter.get(anchor_cert),
         active_peer_count=len(peers),
     )

@@ -224,11 +224,16 @@ def _write_summary_data_row(
     rank_cell.number_format = st.NUMFMT_INTEGER
     rank_cell.alignment = st.ALIGN_RIGHT
 
-    ws.cell(  # type: ignore[attr-defined]
-        row=row,
-        column=delta_col,
-        value=format_delta_bps(row_data.anchor_value, row_data.peer_median),
-    ).alignment = st.ALIGN_RIGHT
+    delta_bps_value: int | None = None
+    if row_data.anchor_value is not None and row_data.peer_median is not None:
+        from decimal import Decimal
+
+        delta_bps_value = int(
+            ((row_data.anchor_value - row_data.peer_median) * Decimal(10000)).quantize(Decimal("1"))
+        )
+    delta_cell = ws.cell(row=row, column=delta_col, value=delta_bps_value)  # type: ignore[attr-defined]
+    delta_cell.number_format = st.NUMFMT_DELTA_BPS
+    delta_cell.alignment = st.ALIGN_RIGHT
 
 
 # --- Comp Sheet ----------------------------------------------------------
