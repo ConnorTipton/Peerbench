@@ -1,10 +1,64 @@
-# Peerbench — handoff (post-PR-#18 — Sprint 2 PR-E: per-ratio drilldown landed; Sprint 2 + Phase 2 DoD-complete)
+# Peerbench — handoff (post-PR-#19 — Phase 4.2 Excel comp workbook export landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 (v1.3) before doing anything substantive.
 
 ## TL;DR
+
+- **PR #19 merged at `16d974d` (2026-05-23).** Phase 4.2 Excel comp workbook
+  export shipped. New `peerbench.export` Python sub-package +
+  `uv run peerbench export --quarter YYYY-Qn --output ./output/ [--anchor 4063]`
+  CLI command. Pure-function builders → typed payloads → single openpyxl
+  writer; no formula logic in the export layer per CLAUDE.md. Six tab kinds:
+  Cover, Summary (30 ratios × anchor + active peers), Comp Sheets (one per
+  peer; I/S 4-quarter + B/S point-in-time + ratios block), Time Series (one
+  per category × 8 quarters), Restatement Log, Methodology. Reviewer agent
+  PASS at `3fae984` after fix-up round addressed style-token alignment,
+  unordered `select(RatioDef)`, Comp Sheet field restatement coverage,
+  Decimal precision on thresholds, anchor suppression, numeric Δ-vs-median,
+  data-vintage from `MAX(facts.last_updated_at)`. Live verified: 148 tests
+  green, pyright clean on the new package, real workbook (15 tabs, 61 KB)
+  generated against prod Supabase showing MidFirst NIM 2.89% vs peer median
+  3.46% with 9 restatement-log rows and 309 methodology rows. **`ELNATR`
+  (provision for credit losses) added to `INCOME_FIELDS`** to populate the
+  Comp Sheet I/S; ingest cron picks it up daily.
+- **Next active scope: dashboard download for the Excel workbook
+  (Supabase Storage path).** Connor wants users to be able to download the
+  workbook directly from https://peerbench-web.vercel.app/ without going
+  through GitHub. Decided architecture: GitHub Action regenerates the
+  `.xlsx` after each successful daily ingest, uploads to Supabase Storage
+  (free-tier bucket, 1 GB cap), dashboard header gets a "Download workbook"
+  link pointing at the bucket's public URL. Avoids committing the `.xlsx`
+  to git (no log noise) and keeps Vercel deploys lean. **Plan-mode
+  brainstorm for this is the next session's first task.** See "Recommended
+  first action" at the bottom.
+- **Phase 4.2 deferred follow-ups (tracked from PR #19 reviewer):**
+  1. Time-series quartile cutoffs should exclude `data_quality='suppressed'`
+     cells (currently summary excludes, time series doesn't — no real impact
+     today since no CBLR filer in the active 5-bank set).
+  2. Field-deps JSON path robustness — `web/lib/ratio-field-deps.generated.json`
+     loaded by relative path; would break under wheel packaging.
+  3. 74 `# type: ignore` comments in `writer.py` — proper `Worksheet` typing
+     pass for pyright strict.
+  4. Canonical `RATIO_ORDER` vs alpha-within-category in Summary section
+     ordering (today's `order_by(category, ratio_id)` is deterministic but
+     doesn't match the CSV's intended row order).
+  5. `freeze_panes = "C3"` (2 cols) vs PLAN.md "first column" (1 col) —
+     spec-time decision was C3; reconcile design.md.
+- **Sprint 2 / Phase 2: DoD-complete** (unchanged since prior handoff).
+- **Phase 3 daily-ingest cron at 2 of 3 green firings.** Third green run
+  expected ~03:00 UTC on 2026-05-24. Check `gh run list --workflow=daily-ingest.yml --limit 5`
+  once tomorrow to confirm Phase 3 DoD closes.
+
+---
+
+## Previous handoff (post-PR-#18 — kept for context)
+
+What follows is the prior handoff text. Read selectively; the bullets above
+supersede the Phase 4.2 and "Recommended first action" sections.
+
+
 
 - **PR #18 (Sprint 2 PR-E) merged at `74f868b`.** Per-ratio drilldown
   route at `/ratio/[ratio_id]` ships — 8-quarter trend `LineChart` (one
