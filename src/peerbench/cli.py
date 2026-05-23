@@ -437,6 +437,73 @@ def export_cmd(
     typer.echo(f"wrote {out_path}")
 
 
+@app.command("upload-workbook")
+def upload_workbook_cmd(
+    file: Annotated[
+        Path,
+        typer.Option("--file", help="Path to the .xlsx file emitted by `peerbench export`"),
+    ],
+    anchor: Annotated[
+        int,
+        typer.Option("--anchor", help="FDIC certificate number"),
+    ] = 4063,
+    bucket: Annotated[
+        str,
+        typer.Option("--bucket", help="Supabase Storage bucket name"),
+    ] = "peerbench-exports",
+) -> None:
+    """Upload the workbook + manifest to Supabase Storage.
+
+    The dashboard reads `latest.json` from the same bucket; we PUT the xlsx
+    first and the manifest second so the manifest never points at a file
+    that hasn't been uploaded yet.
+    """
+    import json
+    import re
+
+    from peerbench.storage import SupabaseStorageClient, build_manifest
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+    if not file.exists():
+        typer.echo(f"workbook not found: {file}", err=True)
+        raise typer.Exit(code=2)
+
+    # Parse quarter_id from filename: peerbench_<cert>_<quarter>.xlsx
+    match = re.match(r"peerbench_\d+_(\d{4}-Q[1-4])\.xlsx$", file.name)
+    if not match:
+        typer.echo(
+            f"filename {file.name!r} does not match peerbench_<cert>_<quarter>.xlsx",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    quarter_id = match.group(1)
+
+    settings = get_settings()
+    public_url_base = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public/{bucket}"
+
+    client = SupabaseStorageClient(
+        url=settings.supabase_url,
+        service_role_key=settings.supabase_service_role_key,
+    )
+
+    manifest = build_manifest(
+        file,
+        anchor_cert=anchor,
+        quarter_id=quarter_id,
+        public_url_base=public_url_base,
+    )
+
+    xlsx_ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    client.upload(bucket, "latest.xlsx", file.read_bytes(), xlsx_ct)
+    client.upload(
+        bucket, "latest.json", json.dumps(manifest, indent=2).encode("utf-8"), "application/json"
+    )
+    typer.echo(f"uploaded {file.name} → {public_url_base}/latest.xlsx")
+
+
 @app.command("export-field-deps")
 def export_field_deps(
     out: Annotated[
