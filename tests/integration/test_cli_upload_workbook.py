@@ -15,7 +15,6 @@ SUPABASE_URL = "https://abc.supabase.co"
 BUCKET = "peerbench-exports"
 
 
-@pytest.mark.integration
 @respx.mock
 def test_upload_workbook_happy_path(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)

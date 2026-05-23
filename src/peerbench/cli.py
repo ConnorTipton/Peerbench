@@ -7,6 +7,7 @@ Commands:
   peerbench compute            — Compute ratios for a bank-quarter and persist.
   peerbench info               — Quick sanity dump of registry + config.
   peerbench export             — Generate the Phase 4.2 Excel comp workbook.
+  peerbench upload-workbook    — Upload the workbook + manifest to Supabase Storage.
   peerbench export-field-deps  — Regenerate the handler field-dependency JSON.
 """
 
