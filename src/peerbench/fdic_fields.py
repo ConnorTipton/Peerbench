@@ -72,6 +72,7 @@ INCOME_FIELDS: tuple[str, ...] = (
     "NONIX",
     "NTLNLS",
     "EAMINTAN",
+    "ELNATR",  # Provision for credit losses — Phase 4.2 Comp Sheet I/S.
 )
 
 # Risk-based capital

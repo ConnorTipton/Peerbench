@@ -6,6 +6,7 @@ Commands:
   peerbench ingest-cdr         — Read FFIEC CDR ZIPs and upsert CDR_* fields.
   peerbench compute            — Compute ratios for a bank-quarter and persist.
   peerbench info               — Quick sanity dump of registry + config.
+  peerbench export             — Generate the Phase 4.2 Excel comp workbook.
   peerbench export-field-deps  — Regenerate the handler field-dependency JSON.
 """
 
@@ -380,6 +381,44 @@ def validate(
         typer.echo(f"wrote snapshot to {write_snapshot_to}")
     if gate.startswith("FAIL"):
         raise typer.Exit(code=1)
+
+
+@app.command("export")
+def export_cmd(
+    quarter: Annotated[
+        str,
+        typer.Option("--quarter", help="Quarter ID 'YYYY-Qn' (e.g. 2025-Q4)"),
+    ],
+    output: Annotated[
+        Path,
+        typer.Option("--output", help="Output directory; created if missing"),
+    ],
+    anchor: Annotated[
+        int,
+        typer.Option("--anchor", help="FDIC certificate number"),
+    ] = 4063,
+) -> None:
+    """Generate the Phase 4.2 Excel comp workbook for an anchor × quarter."""
+    from peerbench.export import run_export
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    if output.exists() and output.is_file():
+        typer.echo(f"--output must be a directory, not a file: {output}", err=True)
+        raise typer.Exit(code=2)
+    with get_session() as session:
+        try:
+            out_path = run_export(
+                session,
+                anchor_cert=anchor,
+                quarter_id=quarter,
+                out_dir=output,
+            )
+        except ValueError as e:
+            typer.echo(str(e), err=True)
+            raise typer.Exit(code=2) from None
+    typer.echo(f"wrote {out_path}")
 
 
 @app.command("export-field-deps")
