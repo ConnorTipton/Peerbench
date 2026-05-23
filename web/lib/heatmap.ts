@@ -31,6 +31,7 @@ export type Bucket = "top" | "middle" | "bottom" | "none";
 
 export type QuartileCutoffs = {
   q1: number;
+  median: number;
   q3: number;
 };
 
@@ -39,6 +40,8 @@ const MIN_VALUES_FOR_QUARTILES = 4;
 // Type-7 quartile (R default, equivalent to Excel's QUARTILE.INC):
 // q-th quantile = sorted[ floor( (n-1)*q ) ] linearly interpolated to
 // sorted[ ceil( (n-1)*q ) ].
+// Median is q2 and travels alongside q1/q3 so the tooltip layer can read
+// "vs peer median" without a second pass over the visible peer set.
 export function computeQuartileCutoffs(
   values: readonly number[],
 ): QuartileCutoffs | null {
@@ -47,6 +50,7 @@ export function computeQuartileCutoffs(
   const sorted = [...filtered].sort((a, b) => a - b);
   return {
     q1: quantile(sorted, 0.25),
+    median: quantile(sorted, 0.5),
     q3: quantile(sorted, 0.75),
   };
 }

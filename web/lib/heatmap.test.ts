@@ -21,12 +21,13 @@ describe("computeQuartileCutoffs", () => {
     expect(computeQuartileCutoffs([10, 20, 30, Number.NaN])).toBeNull();
     expect(
       computeQuartileCutoffs([10, 20, 30, 40, Number.POSITIVE_INFINITY]),
-    ).toEqual({ q1: 17.5, q3: 32.5 });
+    ).toEqual({ q1: 17.5, median: 25, q3: 32.5 });
   });
 
-  it("computes q1=20, q3=40 for the canonical 5-value fixture [10,20,30,40,50]", () => {
+  it("computes q1=20, median=30, q3=40 for the canonical 5-value fixture [10,20,30,40,50]", () => {
     expect(computeQuartileCutoffs([10, 20, 30, 40, 50])).toEqual({
       q1: 20,
+      median: 30,
       q3: 40,
     });
   });
@@ -34,6 +35,7 @@ describe("computeQuartileCutoffs", () => {
   it("handles unsorted input", () => {
     expect(computeQuartileCutoffs([50, 10, 30, 20, 40])).toEqual({
       q1: 20,
+      median: 30,
       q3: 40,
     });
   });
@@ -41,17 +43,22 @@ describe("computeQuartileCutoffs", () => {
   it("uses Type-7 linear interpolation for 4 values [10,20,30,40]", () => {
     expect(computeQuartileCutoffs([10, 20, 30, 40])).toEqual({
       q1: 17.5,
+      median: 25,
       q3: 32.5,
     });
   });
 
-  it("handles all-equal values (q1 === q3)", () => {
-    expect(computeQuartileCutoffs([5, 5, 5, 5])).toEqual({ q1: 5, q3: 5 });
+  it("handles all-equal values (q1 === median === q3)", () => {
+    expect(computeQuartileCutoffs([5, 5, 5, 5])).toEqual({
+      q1: 5,
+      median: 5,
+      q3: 5,
+    });
   });
 });
 
 describe("bucketForCell", () => {
-  const cutoffs: QuartileCutoffs = { q1: 20, q3: 40 };
+  const cutoffs: QuartileCutoffs = { q1: 20, median: 30, q3: 40 };
 
   describe("higher_is_positive (e.g., NIM, ROA, Tier 1 RBC)", () => {
     it("classifies value above q3 as top (green)", () => {
@@ -140,7 +147,7 @@ describe("heat map golden — 5 peer cells, one suppressed, all 3 directions", (
   const cutoffs = computeQuartileCutoffs(valuesForQuartile);
 
   it("excludes the suppressed cell from cutoffs (4 non-suppressed values)", () => {
-    expect(cutoffs).toEqual({ q1: 17.5, q3: 32.5 });
+    expect(cutoffs).toEqual({ q1: 17.5, median: 25, q3: 32.5 });
   });
 
   it("higher_is_positive: highest peer is top, lowest is bottom, q-boundaries are middle", () => {
