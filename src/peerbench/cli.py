@@ -24,7 +24,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
 from peerbench.config import get_settings
-from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
+from peerbench.db import Fact, Institution, Quarter, Ratio, RatioDef, get_session
 from peerbench.db.ratio_writer import upsert_ratio
 from peerbench.fdic_fields import all_field_codes, all_fields
 from peerbench.ingest import FdicClient, make_quality_log_callback, upsert_fact
@@ -386,14 +386,22 @@ def validate(
 
 
 def _resolve_latest_quarter_id(session: Session) -> str:
-    """Return MAX(quarters.quarter_id). Raises ValueError if the table is empty.
+    """Return MAX(ratios.quarter_id). Raises ValueError if no ratios exist.
+
+    Anchors on the ratios table — not the quarters table — to match the
+    dashboard's `getMatrixData` resolution. `_ensure_quarter` can create a
+    Quarter row before any banks have filed or ratios have computed; picking
+    MAX(Quarter) would then publish an empty-quarter workbook that doesn't
+    match what users see on the dashboard.
 
     Correctness relies on quarter_id following the 'YYYY-Qn' format (e.g.
     '2025-Q4'), where lexicographic order coincides with chronological order.
     """
-    latest = session.scalar(select(func.max(Quarter.quarter_id)))
+    latest = session.scalar(select(func.max(Ratio.quarter_id)))
     if latest is None:
-        raise ValueError("no quarters in DB — run `peerbench ingest` first")
+        raise ValueError(
+            "no ratios in DB — run `peerbench compute` after `peerbench ingest`"
+        )
     return latest
 
 
