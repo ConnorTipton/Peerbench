@@ -18,6 +18,12 @@
   --color-text: #0f172a;
   --color-text-secondary: #64748b;
   --color-text-tertiary: #94a3b8;
+  /* Anchor-cell tint — docs/design.md §Anchor highlighting.
+     6% --color-primary blend over each zebra row tone. Tokenized so
+     ratio-matrix.tsx and src/peerbench/export/style.py reference a
+     single source of truth instead of inlining color-mix() twice. */
+  --color-anchor-tint: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  --color-anchor-tint-alt: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-alt));
 
   /* Typography — docs/design.md §Typography. Inter loaded via next/font in layout.tsx. */
   --font-sans: var(--font-inter);
@@ -36,4 +42,14 @@ body {
   font-size: var(--text-body);
   /* Global tabular-nums per docs/design.md §Typography. */
   font-variant-numeric: tabular-nums;
+}
+
+/* Section-eyebrow label — 12px uppercase tertiary text used as H2 above
+   definition / formula / notes blocks on drilldown pages. Tokenized per
+   design-critic PR-E soft #4. */
+.eyebrow-label {
+  font-size: var(--text-table-data);
+  text-transform: uppercase;
+  letter-spacing: 0.05em; /* tracking-wide */
+  color: var(--color-text-tertiary);
 }
