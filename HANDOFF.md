@@ -1,10 +1,126 @@
-# Peerbench — handoff (post-PR-#20 — dashboard workbook download landed)
+# Peerbench — handoff (post-PR-#21/#22 — Phase 4.3 banking design pass complete)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 (v1.3) before doing anything substantive.
 
 ## TL;DR
+
+- **PR #21 merged at `d86a8d9` (2026-05-23) and PR #22 merged at `3191db2`
+  (same evening).** Phase 4.3 banking design pass is now DoD-complete. Two
+  atomic PRs landed in sequence:
+  - **PR #21 (Phase 4.3 PR-G — cleanup).** Anchor tint tokenized to `:root`
+    (Tailwind v4 silent-drops `color-mix(var(...))` from `@theme` — moved
+    out as a `:root` derived token; reviewer caught the silent-drop bug
+    pre-merge); two inline `color-mix` sites in `ratio-matrix.tsx`
+    migrated to the new `--color-anchor-tint` / `--color-anchor-tint-alt`
+    tokens. `.eyebrow-label` utility in `@layer components` collapses the
+    3-class repetition on drilldown H2s (design-critic PR-E soft #4).
+    `docs/design.md` reconciled: Recharts text-bridge paragraph (points
+    at `web/lib/chart-tokens.ts`), trend-chart anchor stroke spec (2.5px
+    `--color-accent` drawn last), freeze-panes `C3` (matches
+    `writer.py:171`), derived-tokens exception, 6% anchor opacity tier
+    named, eyebrow-label pattern documented. `CLAUDE.md` convention line
+    expanded to acknowledge `:root` placement for derived tokens.
+    `PLAN.md` + `style.py` mirror the freeze-panes reconcile + a
+    cross-reference comment.
+  - **PR #22 (Phase 4.3 PR-H — print CSS).** `@page` (letter, 0.5in
+    margins) + `@media print` block in `globals.css` with SVG-scoped
+    wildcard color reset (`*:not(svg, svg *)` — preserves Recharts
+    stroke/fill so trend chart prints with anchor distinction intact),
+    sticky→static conversion, black-border re-assertion on `th/td`.
+    `print:hidden` on `AnchorSelect`, `WorkbookDownload`, sort carets,
+    section-toggle chevrons, drilldown `← Matrix` link. `SortHeader` +
+    `AnchorCertTrigger` emit a `<button class="print:hidden">` +
+    sibling `<span class="hidden print:block">` pattern — headless
+    Chrome collapses `<button>` in `<thead>` repeats, so the print-only
+    span carries the bank-name + cert subtitle on every page (verified
+    on page 2 of `docs/screenshots/print-summary.pdf`). Matrix overflow
+    + height overrides (`print:h-auto`, `print:overflow-visible`) so
+    all 30 ratios paginate instead of being clipped to the `h-dvh`
+    viewport. `print:break-inside-avoid` on every data row,
+    `print:break-after-avoid` on section headers (keep with first data
+    row), `print:break-before-page` on drilldown chart sections.
+    Tailwind v4 auto-generates the `print:` variants from JSX usage —
+    no manual utility definitions needed in `globals.css`.
+  - **DoD artifacts committed:** `docs/screenshots/print-summary.pdf`
+    (217 KB, 2 pages, full thead repeats, all 30 ratios) +
+    `docs/screenshots/print-ratio-nim.pdf` (141 KB, 3 pages —
+    definition/formula/notes on p1, 8-quarter trend on p2 with MidFirst
+    anchor in 2.5px navy distinct from 1px tertiary peers, peer
+    distribution strip-plot on p3 with 6px anchor dot).
+    `docs/operations.md` §Print verification documents the regeneration
+    procedure (headless Chrome with `--headless=new
+    --virtual-time-budget=10000 --no-pdf-header-footer` — the virtual
+    time budget gives Recharts time to hydrate before snapshot;
+    without it the charts capture as empty containers).
+  - **156 vitest + 162 pytest passing** (no test changes — both PRs
+    are CSS/JSX-class/docs only). Reviewer sub-agent PASS on both PRs.
+    design-critic SOFT FAIL → PASS on PR #21 (1 wording fix in
+    `dc43c87`); design-critic PASS on PR #22 (4 design.md gaps
+    addressed in `0ba5071`). Live verified on
+    https://peerbench-web.vercel.app/ — Vercel previews green on both
+    PRs.
+- **Phase 4.3 deferred follow-ups** (none are blockers for any future
+  Phase 4 sub-phase):
+  1. (PR #22) **Print-only `<footer>` legend explaining `△`/`●`/`r`**
+     indicators. They survive on paper (correct — they're data), but
+     their hover-tooltip context is lost. A `<footer
+     className="hidden print:block">` at the bottom of the matrix
+     listing "△ = regulatory threshold flag; ● = top/bottom quartile;
+     r = restated input" would close the explanatory gap. Design-critic
+     PR-H soft.
+  2. (PR #22) **Strip-plot on drilldown page 3 sits at ~25-55% of
+     letter width.** Cosmetic — `ResponsiveContainer width="100%"`
+     computes narrower in the print viewport than expected. Chart data
+     is correct; framing is under-sized. Tracked in
+     `docs/operations.md` §Known limitations.
+  3. (PR #22) **Collapsed-section rows absent from print PDFs.**
+     `RatioMatrix` filters collapsed-category rows at the React data
+     layer (`web/components/ratio-matrix.tsx:199-203`), not via CSS,
+     so CSS can't restore them in print. If a user collapses a
+     category before printing, those ratios are absent. Workaround
+     documented: print after expanding all categories.
+  4. (PR #22) **`print:break-after-avoid` on section header rows is a
+     weak substitute for `print:break-before-page`.** Works in practice
+     via Chrome UA heuristic, but not a CSS guarantee. Could tighten
+     to `break-after: avoid + break-before: avoid on first data row`
+     in a future print pass.
+  5. (PR #21) **`docs/screenshots/` accumulates binary PDFs.** 217+141
+     KB committed; not a concern at current scale but could grow as
+     README screenshots / Loom thumbnails land in Phase 4.4. Long-term
+     home is GitHub LFS or a release asset.
+- **Phase 4.2 deferred follow-ups still pending** (carried from
+  prior handoff; unchanged):
+  1. Time-series quartile cutoffs should exclude
+     `data_quality='suppressed'` cells (no real impact today —
+     no CBLR filer in the active 5-bank set).
+  2. Field-deps JSON path robustness —
+     `web/lib/ratio-field-deps.generated.json` loaded by relative
+     path; would break under wheel packaging.
+  3. 74 `# type: ignore` comments in `writer.py` — proper
+     `Worksheet` typing pass for pyright strict.
+  4. Canonical `RATIO_ORDER` vs alpha-within-category in Summary
+     section ordering.
+  5. (PR #20) `_resolve_latest_quarter_id` lexicographic-MAX
+     assumption fragile if `quarter_id` ever stops matching
+     `YYYY-Qn`. Docstring documents; a `CHECK` constraint would
+     make it airtight.
+- **Supabase MCP is now read-WRITE in `~/.claude.json`** (was
+  read-only). `CLAUDE.md` was reconciled in `164a74b` to drop the
+  stale `(read-only in dev)` line. PR #21 also added a derived-tokens
+  paragraph to the Design tokens convention line.
+- **Phase 2 / Phase 3 / Phase 4.2 / Phase 4.3: all DoD-complete.**
+  Next active scope per `PLAN.md` v1.3 is Phase 4.1 (insights
+  generation — `/insight` slash command) or Phase 4.4 (README +
+  ARCHITECTURE.md + screenshots + Loom). Either is a valid pick.
+
+---
+
+## Previous handoff (post-PR-#20 — kept for context)
+
+What follows is the prior handoff text. Read selectively; the bullets above
+supersede the Phase 4.2 and "Recommended first action" sections.
 
 - **PR #20 merged at `688c8f6` (2026-05-23 evening).** Dashboard workbook
   download surface shipped — users can now pull the Excel comp workbook
@@ -1445,68 +1561,58 @@ publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## Recommended first action
 
-**Phase 3 DoD calendar gate (passive).** Daily-ingest cron is at **2 of 3**
-required green firings (latest: `gh run 26325458004` on 2026-05-23
-06:11:42 UTC, 12m22s green). One more required (2026-05-24 ~03:00 UTC,
-free-tier delays of a few hours normal). No action required — check
-`gh run list --workflow=daily-ingest.yml --limit 5` once on 2026-05-24
-to confirm. Once the third lands, Phase 3 DoD closes.
+**Phase 2 / Phase 3 / Phase 4.2 / Phase 4.3 are all DoD-complete.**
+The matrix renders all 30 ratios with sort, collapse, heat map,
+regulatory flags, cell-context tooltips, per-ratio drilldown, and
+print-to-PDF; the daily ingest cron runs green; the Excel comp
+workbook generates + uploads to Supabase Storage on every cron;
+the dashboard surfaces a workbook download link with a freshness
+subtitle; the print path produces letter-size PDFs with full thead
+repeats and Recharts color preservation. **Next active scope is
+the remaining Phase 4 polish: insights (4.1) and README/Loom (4.4).**
 
-**Sprint 2 / Phase 2 is DoD-complete.** All five planned PRs landed
-(A/B/C/D/E = #12 / #13 / #14 / #16 / #18), plus the Vitest infra PR
-(#15) between PR-C and PR-D and the post-plan cell-context-tooltip
-addition (PR-F = #17) between PR-D and PR-E. The matrix renders all 30
-ratios with sort, collapse, heat map, regulatory flags, cell-context
-tooltips, and per-ratio drilldown navigation. Per-route bundle: matrix
-client chunks unchanged from pre-PR-E; Recharts isolated to the
-drilldown chunk only. **Next active scope is Phase 4 polish.**
+### Active: Phase 4 polish (remaining sub-phases)
 
-### Active: Phase 4 polish
+Pick either order — both are independent.
 
-Phase 4 is 2.5 days per `PLAN.md` v1.3. Recommended sub-phase order
-(from the prior handoff, unchanged — Excel + design pass are the two
-highest-signal interview artifacts; insights are easier after the
-design pass locks the visual vocabulary):
-
-1. **Phase 4.2 — Excel comp workbook export** — `uv run peerbench
-   export --quarter YYYY-Qn --output ./output/`. Reads from the same
-   `ratios` table the dashboard uses. Six tabs: Cover, Summary, Comp
-   Sheets, Time Series by category, Restatement Log, Methodology.
-   Specs in `PLAN.md` v1.3. **Pure read from `ratios` — no recompute,
-   per CLAUDE.md "no formula logic in the Excel export layer."** Good
-   first sub-phase: stretches the existing `ratios` data, exercises
-   the Python side that's been quiet since Phase 1, and produces a
-   tangible deliverable.
-2. **Phase 4.3 — Banking design pass** — tabular-nums everywhere,
-   conditional-formatting parity between dashboard and Excel, print
-   CSS verified by printing Summary + one Comp Sheet drilldown to
-   PDF. Two known cleanups belong here: (a) the anchor tint `6%`
-   hardcoded inline-style P3 from earlier Sprint 2 work; (b)
-   design-critic's two PR-E follow-ups — design.md §Typography
-   needs a "Recharts text uses `--text-table-data` for ticks /
-   `--text-superscript` for axis labels" line, and §Anchor
-   highlighting needs a "trend-chart anchor is `--color-accent`
-   2.5px stroke drawn last" line. PR-E's `web/lib/chart-tokens.ts`
-   is the canonical bridge between CSS tokens and Recharts numeric
-   `fontSize`.
-3. **Phase 4.1 — Insights generation** — `/insight <cert> <quarter>`
-   slash command + skill. 3 commentary bullets per peer/quarter
-   pair, citing specific schedules (RC-C, RC-K, RC-R).
-4. **Phase 4.4 — Polish** — README, ARCHITECTURE.md, screenshots,
-   one Loom.
+1. **Phase 4.1 — Insights generation.** `/insight <cert> <quarter>`
+   slash command + skill in `.claude/`. 3 commentary bullets per
+   peer/quarter pair, citing specific schedules (RC-C, RC-K, RC-R).
+   Could surface as an insight panel in the per-ratio drilldown or
+   stay CLI-only. Lower complexity than Phase 4.2 was; mostly prompt
+   engineering + a thin Supabase read on top of the `ratios` table.
+2. **Phase 4.4 — Polish.** README + ARCHITECTURE.md + screenshots +
+   one Loom walkthrough. The Phase 4.3 print PDFs at
+   `docs/screenshots/print-summary.pdf` and `print-ratio-nim.pdf`
+   are already in the right place for README use; need to add live
+   screenshots (matrix view, drilldown view, Excel workbook
+   thumbnail) and an architecture diagram. Loom should narrate the
+   anchor-vs-peer story on a real ratio (NIM is the canonical
+   example) for an interview audience.
 
 ### Phase 4 follow-ups from earlier work (also tracked)
 
-Carry these into the relevant Phase 4 sub-phase:
+Carry these into the relevant Phase 4 sub-phase or the next refactor
+pass:
 
 - **`cre_rbc_growth_36mo` pipeline ratio** (locked Sprint 2 PR-D
   deferral). SR 07-1 §III.A 36-month growth gate. Compute trailing
   growth in the pipeline (not TS) and persist as a new ratio so the
   CRE amber/red flags can finally fire conditionally on growth + the
-  300%/400% trip wires. Belongs in Phase 4.1 or 4.2.
-- **Sentry-by-default env var split**, **anchor tint `6%` inline-style
-  P3 cleanup**, **eyebrow-label token rename** (design-critic PR-E
-  soft #4) — all small; bundle in Phase 4.3 design pass.
+  300%/400% trip wires. Could ship as a Phase 4.1 side quest.
+- **Sentry-by-default env var split** — `web/sentry.{server,edge}.config.ts`
+  use `SENTRY_DSN`; `instrumentation-client.ts` uses
+  `NEXT_PUBLIC_SENTRY_DSN`. The intent of the deferred follow-up is
+  probably to unify gating on an explicit `SENTRY_ENABLED` env var
+  rather than `NODE_ENV === 'production'`. Small, isolated change.
+- **Phase 4.3 follow-ups** (5 items listed in the TL;DR above) — print
+  legend footer, strip-plot width, collapsed-row expansion,
+  break-after-avoid tightening, screenshots binary footprint. None
+  blocks Phase 4.1 or 4.4.
+- **Phase 4.2 follow-ups** (5 items listed in TL;DR) — suppressed-cell
+  TS quartile handling, field-deps JSON path, `Worksheet` typing pass,
+  RATIO_ORDER vs alpha-within-category, `_resolve_latest_quarter_id`
+  lex-MAX assumption.
 
 ## Definition of done for Phase 3 (per `PLAN.md` v1.3)
 
