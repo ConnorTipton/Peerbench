@@ -338,6 +338,8 @@ export function RatioMatrix({
                         : "z-20 text-right min-w-40",
                     ].join(" ")}
                     style={{
+                      // Headers don't zebra — sticky top row never alternates,
+                      // so the surface-blend tint (not -alt) is always correct.
                       background: isAnchorCol
                         ? "var(--color-anchor-tint)"
                         : "var(--color-surface)",
