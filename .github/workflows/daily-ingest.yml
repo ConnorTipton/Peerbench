@@ -54,5 +54,17 @@ jobs:
             uv run peerbench compute --cert "$cert" --quarters 8
           done
 
+      - name: Generate workbook
+        run: uv run peerbench export --quarter latest --output ./output
+
+      - name: Upload workbook to Supabase Storage
+        run: |
+          workbook=$(ls ./output/peerbench_*.xlsx 2>/dev/null | head -1)
+          if [ -z "$workbook" ]; then
+            echo "no workbook found in ./output/ — export step may have failed" >&2
+            exit 1
+          fi
+          uv run peerbench upload-workbook --file "$workbook"
+
       - name: Heartbeat
         run: echo "Heartbeat $(date -u +%Y-%m-%dT%H:%M:%SZ)"

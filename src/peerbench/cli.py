@@ -7,6 +7,7 @@ Commands:
   peerbench compute            — Compute ratios for a bank-quarter and persist.
   peerbench info               — Quick sanity dump of registry + config.
   peerbench export             — Generate the Phase 4.2 Excel comp workbook.
+  peerbench upload-workbook    — Upload the workbook + manifest to Supabase Storage.
   peerbench export-field-deps  — Regenerate the handler field-dependency JSON.
 """
 
@@ -18,11 +19,12 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.orm import Session
 
 from peerbench.config import get_settings
-from peerbench.db import Fact, Institution, Quarter, RatioDef, get_session
+from peerbench.db import Fact, Institution, Quarter, Ratio, RatioDef, get_session
 from peerbench.db.ratio_writer import upsert_ratio
 from peerbench.fdic_fields import all_field_codes, all_fields
 from peerbench.ingest import FdicClient, make_quality_log_callback, upsert_fact
@@ -383,11 +385,31 @@ def validate(
         raise typer.Exit(code=1)
 
 
+def _resolve_latest_quarter_id(session: Session) -> str:
+    """Return MAX(ratios.quarter_id). Raises ValueError if no ratios exist.
+
+    Anchors on the ratios table — not the quarters table — to match the
+    dashboard's `getMatrixData` resolution. `_ensure_quarter` can create a
+    Quarter row before any banks have filed or ratios have computed; picking
+    MAX(Quarter) would then publish an empty-quarter workbook that doesn't
+    match what users see on the dashboard.
+
+    Correctness relies on quarter_id following the 'YYYY-Qn' format (e.g.
+    '2025-Q4'), where lexicographic order coincides with chronological order.
+    """
+    latest = session.scalar(select(func.max(Ratio.quarter_id)))
+    if latest is None:
+        raise ValueError(
+            "no ratios in DB — run `peerbench compute` after `peerbench ingest`"
+        )
+    return latest
+
+
 @app.command("export")
 def export_cmd(
     quarter: Annotated[
         str,
-        typer.Option("--quarter", help="Quarter ID 'YYYY-Qn' (e.g. 2025-Q4)"),
+        typer.Option("--quarter", help="Quarter ID 'YYYY-Qn' (e.g. 2025-Q4) or 'latest'"),
     ],
     output: Annotated[
         Path,
@@ -409,16 +431,86 @@ def export_cmd(
         raise typer.Exit(code=2)
     with get_session() as session:
         try:
+            resolved_quarter = (
+                _resolve_latest_quarter_id(session) if quarter == "latest" else quarter
+            )
             out_path = run_export(
                 session,
                 anchor_cert=anchor,
-                quarter_id=quarter,
+                quarter_id=resolved_quarter,
                 out_dir=output,
             )
         except ValueError as e:
             typer.echo(str(e), err=True)
             raise typer.Exit(code=2) from None
     typer.echo(f"wrote {out_path}")
+
+
+@app.command("upload-workbook")
+def upload_workbook_cmd(
+    file: Annotated[
+        Path,
+        typer.Option("--file", help="Path to the .xlsx file emitted by `peerbench export`"),
+    ],
+    anchor: Annotated[
+        int,
+        typer.Option("--anchor", help="FDIC certificate number"),
+    ] = 4063,
+    bucket: Annotated[
+        str,
+        typer.Option("--bucket", help="Supabase Storage bucket name"),
+    ] = "peerbench-exports",
+) -> None:
+    """Upload the workbook + manifest to Supabase Storage.
+
+    The dashboard reads `latest.json` from the same bucket; we PUT the xlsx
+    first and the manifest second so the manifest never points at a file
+    that hasn't been uploaded yet.
+    """
+    import json
+    import re
+
+    from peerbench.storage import SupabaseStorageClient, build_manifest
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+
+    if not file.exists():
+        typer.echo(f"workbook not found: {file}", err=True)
+        raise typer.Exit(code=2)
+
+    # Parse quarter_id from filename: peerbench_<cert>_<quarter>.xlsx
+    match = re.match(r"peerbench_\d+_(\d{4}-Q[1-4])\.xlsx$", file.name)
+    if not match:
+        typer.echo(
+            f"filename {file.name!r} does not match peerbench_<cert>_<quarter>.xlsx",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+    quarter_id = match.group(1)
+
+    settings = get_settings()
+    public_url_base = f"{settings.supabase_url.rstrip('/')}/storage/v1/object/public/{bucket}"
+
+    client = SupabaseStorageClient(
+        url=settings.supabase_url,
+        service_role_key=settings.supabase_service_role_key,
+    )
+
+    manifest = build_manifest(
+        file,
+        anchor_cert=anchor,
+        quarter_id=quarter_id,
+        public_url_base=public_url_base,
+    )
+
+    xlsx_ct = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    client.upload(bucket, "latest.xlsx", file.read_bytes(), xlsx_ct)
+    client.upload(
+        bucket, "latest.json", json.dumps(manifest, indent=2).encode("utf-8"), "application/json"
+    )
+    typer.echo(f"uploaded {file.name} → {public_url_base}/latest.xlsx")
 
 
 @app.command("export-field-deps")

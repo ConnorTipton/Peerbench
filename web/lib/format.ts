@@ -50,3 +50,22 @@ export function formatReportDate(isoDate: string): string {
   // quarters.report_date is a Postgres DATE (UTC midnight); just take the date portion.
   return isoDate.slice(0, 10);
 }
+
+/**
+ * Render an ISO-8601 timestamp as a freshness suffix for the workbook
+ * download subtitle. Same-day timestamps (within 24h, including future
+ * timestamps from clock skew) collapse to "today" for the fresh-data
+ * affordance; older timestamps render as a bare YYYY-MM-DD ISO date so a
+ * banker can anchor the file to a specific reporting day. The date style
+ * matches `formatReportDate` so the header subtitle column reads as a
+ * coherent date convention.
+ */
+export function formatRelativeDate(iso: string): string {
+  const then = new Date(iso);
+  const now = new Date();
+  const diffMs = now.getTime() - then.getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  if (diffMs < dayMs) return "today";
+  return then.toISOString().slice(0, 10);
+}
