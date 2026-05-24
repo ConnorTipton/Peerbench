@@ -108,14 +108,26 @@ Amber-flag any cell crossing a regulatory threshold defined in `ratio_defs.regul
 
 ## Print CSS
 
-`@media print` rules:
+`@media print` rules — implemented in `web/app/globals.css`:
 
-- Hide navigation chrome (sidebar, header bar, controls).
-- Tables fit letter-size: `8.5in × 11in` with 0.5in margins.
-- Black text on white. No background colors, no tints.
-- Page breaks between major sections.
-- Tabular-nums preserved. Right-align preserved.
-- Verify on Summary page and one Comp Sheet drilldown as part of the Phase 4 design pass.
+- **Page setup.** Letter (`8.5in × 11in`), 0.5in margins via top-level `@page { size: letter; margin: 0.5in }`.
+- **Color reset.** Wildcard `*:not(svg, svg *), *::before, *::after { background: transparent !important; color: black !important; box-shadow: none !important }`. The `:not(svg, svg *)` scope is intentional — it preserves Recharts SVG `stroke`/`fill` attributes so the trend-chart anchor (2.5px `--color-accent`) stays visually distinct from peers (1px `--color-text-tertiary`) on paper. Without the carve-out, charts print monochrome.
+- **Grid lines.** Re-asserted as `th, td { border-color: black !important }` so the wildcard reset doesn't kill the table grid.
+- **Sticky → static.** Inside `@media print`: `.sticky { position: static !important }`. On-screen sticky headers / first column become in-flow on paper (sticky positioning produces glitches in print).
+- **Tabular-nums + right-align** preserved via inheritance from the screen body styles (not overridden in the print block).
+- **Hide chrome (`print:hidden`).** Required on every commit touching the dashboard:
+  - `AnchorSelect` and `WorkbookDownload` (wrapped at the call site in `web/app/page.tsx`)
+  - Sort indicator glyph spans (`↑`/`↓`/`↕`) in `SortHeader`
+  - Section-toggle chevron spans (`▾`/`▸`) in `SectionToggle`
+  - `← Matrix` back-link on the drilldown
+- **Print-only fallback span (`hidden print:block`).** `SortHeader` and `AnchorCertTrigger` emit a `<span class="hidden print:block">` sibling alongside the interactive `<button>`. Headless Chrome's print engine collapses `<button>` elements on repeated `<thead>` rows, so the print-only span carries the bank name + cert subtitle on every page (verified on page 2 of `docs/screenshots/print-summary.pdf`).
+- **Page-break behavior.**
+  - Matrix data rows: `print:break-inside-avoid` so a cell never splits.
+  - Matrix section header rows: `print:break-after-avoid` so a category header always sticks with its first data row.
+  - Drilldown sections (8-quarter trend, peer distribution): `print:break-before-page` so each chart lands on its own page.
+- **Indicators survive on paper.** The `△` regulatory flag, `●` quartile rank, and `r` restatement marker render in print (no `print:hidden`). They are meaningful annotations even without their hover-tooltip explanations — `△` next to a percentage signals "flag this." A print-only `<footer>` legend explaining each symbol is a Phase 4 polish follow-up.
+
+Verified on `/` (Summary matrix) and `/ratio/nim` (per-ratio drilldown) — see `docs/screenshots/print-summary.pdf` + `docs/screenshots/print-ratio-nim.pdf`. Regeneration procedure in `docs/operations.md` §Print verification.
 
 ## Excel export design parity
 
