@@ -1,4 +1,4 @@
-# Peerbench — handoff (post-PR-#19 — Phase 4.2 Excel comp workbook export landed)
+# Peerbench — handoff (post-PR-#20 — dashboard workbook download landed)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,34 +6,35 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
-- **PR #19 merged at `16d974d` (2026-05-23).** Phase 4.2 Excel comp workbook
-  export shipped. New `peerbench.export` Python sub-package +
-  `uv run peerbench export --quarter YYYY-Qn --output ./output/ [--anchor 4063]`
-  CLI command. Pure-function builders → typed payloads → single openpyxl
-  writer; no formula logic in the export layer per CLAUDE.md. Six tab kinds:
-  Cover, Summary (30 ratios × anchor + active peers), Comp Sheets (one per
-  peer; I/S 4-quarter + B/S point-in-time + ratios block), Time Series (one
-  per category × 8 quarters), Restatement Log, Methodology. Reviewer agent
-  PASS at `3fae984` after fix-up round addressed style-token alignment,
-  unordered `select(RatioDef)`, Comp Sheet field restatement coverage,
-  Decimal precision on thresholds, anchor suppression, numeric Δ-vs-median,
-  data-vintage from `MAX(facts.last_updated_at)`. Live verified: 148 tests
-  green, pyright clean on the new package, real workbook (15 tabs, 61 KB)
-  generated against prod Supabase showing MidFirst NIM 2.89% vs peer median
-  3.46% with 9 restatement-log rows and 309 methodology rows. **`ELNATR`
-  (provision for credit losses) added to `INCOME_FIELDS`** to populate the
-  Comp Sheet I/S; ingest cron picks it up daily.
-- **Next active scope: dashboard download for the Excel workbook
-  (Supabase Storage path).** Connor wants users to be able to download the
-  workbook directly from https://peerbench-web.vercel.app/ without going
-  through GitHub. Decided architecture: GitHub Action regenerates the
-  `.xlsx` after each successful daily ingest, uploads to Supabase Storage
-  (free-tier bucket, 1 GB cap), dashboard header gets a "Download workbook"
-  link pointing at the bucket's public URL. Avoids committing the `.xlsx`
-  to git (no log noise) and keeps Vercel deploys lean. **Plan-mode
-  brainstorm for this is the next session's first task.** See "Recommended
-  first action" at the bottom.
-- **Phase 4.2 deferred follow-ups (tracked from PR #19 reviewer):**
+- **PR #20 merged at `688c8f6` (2026-05-23 evening).** Dashboard workbook
+  download surface shipped — users can now pull the Excel comp workbook
+  straight from https://peerbench-web.vercel.app/ instead of going through
+  GitHub. New `peerbench.storage` Python sub-package (httpx-based — zero
+  new deps) + `uv run peerbench upload-workbook --file <path>` CLI +
+  `peerbench export --quarter latest` sentinel anchored on
+  `MAX(ratios.quarter_id)` to match the dashboard. `daily-ingest.yml`
+  gained two steps (Generate workbook → Upload workbook to Supabase
+  Storage). Dashboard reads `latest.json` server-side via a
+  `<Suspense fallback={null}>` wrapper so manifest fetch streams
+  independently of `getMatrixData`; renders nothing on 404/timeout/parse
+  failure — graceful empty-state. Live verified post-merge:
+  `gh run 26349840203` green, `latest.xlsx` (61 KB, quarter `2025-Q4`)
+  + `latest.json` (correct shape) live on the bucket; dashboard HTML
+  shows the `Download workbook (.xlsx)` link with `Updated today`
+  subtitle. **162 pytest + 156 vitest passing.** Reviewer sub-agent PASS
+  (0 blocking, 4 soft — 3 fixed on-branch, 1 acknowledged); design-critic
+  SOFT FAIL → PASS after 3 on-branch fixes (link 14px → 12px, ISO dates,
+  `items-start`); codex caught 1 real P1 (latest-quarter anchor
+  fragility — fixed in `afa6b80`) and 1 false-positive (PUT+x-upsert
+  empirically works on empty buckets). **Public bucket `peerbench-exports`
+  was created manually via the Supabase dashboard** — one-shot prereq.
+- **Supabase MCP is now read-WRITE in `~/.claude.json`** (was read-only).
+  Connor accepted the blast-radius tradeoff during this session. Future
+  sessions can `apply_migration` / write SQL via MCP directly. CLAUDE.md
+  still says "(read-only in dev)" — that line is stale; reconcile in the
+  next session if you touch CLAUDE.md.
+- **Phase 4.2 deferred follow-ups still pending** (PR #20 didn't worsen
+  any of them; new items 6–8 added from PR #20 reviewer feedback):
   1. Time-series quartile cutoffs should exclude `data_quality='suppressed'`
      cells (currently summary excludes, time series doesn't — no real impact
      today since no CBLR filer in the active 5-bank set).
@@ -46,10 +47,22 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
      doesn't match the CSV's intended row order).
   5. `freeze_panes = "C3"` (2 cols) vs PLAN.md "first column" (1 col) —
      spec-time decision was C3; reconcile design.md.
+  6. (PR #20) `_resolve_latest_quarter_id` lexicographic-MAX assumption
+     fragile if `quarter_id` ever stops matching `YYYY-Qn` (e.g. 10th
+     quarter). Docstring documents; a `CHECK` constraint at the DB level
+     would make it airtight.
+  7. (PR #20) CLAUDE.md still says "Supabase MCP (read-only in dev)" —
+     the MCP config has been flipped to read-write; reconcile this line.
+  8. (PR #20) Codex false-positive logged for the record: it claimed
+     PUT+x-upsert can't create initial objects in an empty bucket. Task 5
+     smoke test empirically disproved this (two 200s on a fresh empty
+     bucket). If a future reviewer raises the same concern, point at the
+     smoke-test logs in the PR #20 description.
 - **Sprint 2 / Phase 2: DoD-complete** (unchanged since prior handoff).
-- **Phase 3 daily-ingest cron at 2 of 3 green firings.** Third green run
-  expected ~03:00 UTC on 2026-05-24. Check `gh run list --workflow=daily-ingest.yml --limit 5`
-  once tomorrow to confirm Phase 3 DoD closes.
+- **Phase 3 daily-ingest cron at 3+ of 3 green firings.** Phase 3 DoD
+  CLOSED. Latest green run: `gh run 26349840203` (workflow_dispatch from
+  PR #20 verification, 2026-05-24T02:36:39Z) — now also exercises the new
+  workbook generate + upload steps.
 
 ---
 
