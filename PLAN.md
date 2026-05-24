@@ -412,7 +412,7 @@ All UI conforms to the banking design spec in `docs/design.md` (summarized above
 - **Color coding:** inputs blue (`#1E40AF`), computed values black, hardcoded values green.
 - **Number formats:** currency `$#,##0;($#,##0)`, percentages `0.00%`, basis points where appropriate. Negatives in parentheses, not minus signs.
 - **Conditional formatting** on Summary and time-series tabs: light green tint for top quartile, light red tint for bottom quartile, direction-aware (higher NIM = green, higher efficiency ratio = red, higher CRE concentration = caution).
-- **Frozen panes:** top 2 rows + first column on Summary.
+- **Frozen panes:** top 2 rows + first 2 columns on Summary (`freeze_panes = "C3"` — category + ratio name both pinned). See `docs/design.md` §Excel export design parity for column semantics.
 - Right-align all numerics, tabular-nums font.
 
 #### Banking design pass
