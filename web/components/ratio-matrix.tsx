@@ -377,7 +377,7 @@ export function RatioMatrix({
             const zebra =
               rowIdx % 2 === 0 ? "var(--color-surface)" : "var(--color-surface-alt)";
             return (
-              <tr key={row.id}>
+              <tr key={row.id} className="print:break-inside-avoid">
                 {row.getVisibleCells().map((cell) => {
                   const isRatioCol = cell.column.id === "ratio";
                   const cert = cell.column.columnDef.meta?.cert;
@@ -700,7 +700,7 @@ function SectionToggle({
     >
       <span
         aria-hidden="true"
-        className="inline-block w-3 text-text-tertiary"
+        className="inline-block w-3 text-text-tertiary print:hidden"
       >
         {isCollapsed ? "▸" : "▾"}
       </span>
@@ -732,7 +732,7 @@ function SortHeader({
         <span>{name}</span>
         <span
           aria-hidden="true"
-          className={dir ? "text-accent" : "text-text-tertiary"}
+          className={`${dir ? "text-accent" : "text-text-tertiary"} print:hidden`}
         >
           {indicator}
         </span>
