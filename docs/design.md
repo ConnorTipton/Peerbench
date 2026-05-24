@@ -52,6 +52,8 @@ Never use full-saturation fills on data cells.
 
 Weights: 600 for headers, 500 for section labels, 400 for body and data cells.
 
+**Recharts text bridge.** Recharts components need numeric `fontSize` props (can't read CSS vars). `web/lib/chart-tokens.ts` mirrors the typography tokens above as JS numbers — Recharts axis ticks use `--text-table-data` (12); axis labels use `--text-superscript` (10). Never inline a `fontSize` literal in chart code; import from `chart-tokens.ts`.
+
 ## Layout rules
 
 - Information density over whitespace — favor tight padding on data tables (4px y / 8px x).
@@ -82,6 +84,7 @@ The anchor column (currently MidFirst, Cert 4063) gets a low-opacity `--color-pr
 
 - **Cert subtitle as tooltip trigger.** For the anchor column only, the cert subtitle in the column header reads `Anchor · Cert <n>` and is a focusable `<button>` wrapped in a Radix tooltip. Hover/focus reveals the bank name, the anchor designation, and how to switch via the bank selector. Non-anchor columns keep the plain `Cert <n>` text.
 - Switching the anchor via the selector re-applies the tint to the new column. The cert subtitle text and tooltip update accordingly with no extra plumbing — both are derived from `anchorCert` at render time.
+- **Trend-chart anchor stroke.** On the `/ratio/<id>` 8-quarter trend chart, the anchor bank renders as a 2.5px stroke in `--color-accent`, drawn last so it sits on top of peer-line overlap. Peers render as 1px strokes in `--color-text-tertiary`. Strip-plot points (peer distribution panel): 6px anchor dot in `--color-accent`, 4px peer dots in `--color-text-tertiary`.
 
 ## Restatement indicator
 
@@ -115,7 +118,7 @@ The Phase 4 Excel comp workbook (`uv run peerbench export`) must mirror this spe
 - **Color coding:** inputs `--color-accent` (`#1E40AF`), computed values black, hardcoded values `--color-positive` (`#15803D`).
 - **Number formats:** currency `$#,##0;($#,##0)`, percentages `0.00%`. Negatives in parentheses.
 - **Conditional formatting** on Summary and time-series tabs: light positive tint for top quartile, light negative tint for bottom quartile, direction-aware per ratio.
-- **Frozen panes:** top 2 rows + first column on Summary.
+- **Frozen panes (Summary tab):** top 2 rows + first 2 columns (openpyxl `freeze_panes = "C3"`). First column is the ratio category, second is the ratio name — both stay visible during horizontal scroll across peer columns. Other tabs use single-column or single-row freezes per tab semantics (see `src/peerbench/export/writer.py`).
 - **Right-align all numerics.** Tabular-nums font.
 
 ## Don'ts
