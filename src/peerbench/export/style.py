@@ -48,6 +48,8 @@ SECTION_HEADER_FILL_HEX = SURFACE_ALT  # zebra row tone for section headers
 # Both apply 6% --color-primary over the cell background. Keep in sync.
 # (Lives in :root rather than @theme because Tailwind v4 drops color-mix()
 # with nested var() chains from theme-parse output.)
+# No --color-anchor-tint-alt equivalent: the Excel Summary doesn't zebra
+# data rows, so a single flat anchor fill suffices here.
 ANCHOR_TINT_HEX = _tint(PRIMARY, 0.06)
 QUARTILE_TOP_HEX = _tint(POSITIVE, 0.10)  # /10 per design.md
 QUARTILE_BOTTOM_HEX = _tint(NEGATIVE, 0.10)  # /10 per design.md

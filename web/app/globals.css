@@ -32,8 +32,8 @@
    Live outside @theme because Tailwind v4 cannot resolve nested var()
    chains in color-mix() at theme-parse time. As plain :root custom
    properties they resolve at use time (CSS spec), which is what
-   ratio-matrix.tsx + style.py need. Will be referenced once G3 / G7
-   replace the inlined color-mix() expressions at those call sites. */
+   ratio-matrix.tsx needs. The Python export (src/peerbench/export/
+   style.py) mirrors the 6% blend statically with the same intent. */
 :root {
   --color-anchor-tint: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
   --color-anchor-tint-alt: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-alt));
