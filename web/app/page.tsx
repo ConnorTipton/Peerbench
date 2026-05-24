@@ -47,7 +47,7 @@ export default async function HomePage({
   const initialCollapsed = parseCollapsedParam(firstParam(collapsed));
 
   return (
-    <main className="flex h-dvh flex-col px-6 py-6">
+    <main className="flex h-dvh flex-col px-6 py-6 print:h-auto">
       <header className="mb-4 flex items-start justify-between gap-4">
         <h1 className="text-page-title font-semibold text-primary">Peerbench</h1>
         <div className="flex flex-col items-end gap-1">
@@ -55,11 +55,13 @@ export default async function HomePage({
             As of {formatReportDate(data.quarter.report_date)}
           </span>
           <Suspense fallback={null}>
-            <WorkbookDownload />
+            <div className="print:hidden">
+              <WorkbookDownload />
+            </div>
           </Suspense>
         </div>
       </header>
-      <div className="mb-4">
+      <div className="mb-4 print:hidden">
         <AnchorSelect institutions={data.institutions} anchorCert={anchorCert} />
       </div>
       <RatioMatrix

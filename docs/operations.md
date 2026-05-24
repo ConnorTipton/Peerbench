@@ -141,3 +141,49 @@ Migrations like `0001_enable_rls.sql` already contain an explicit `BEGIN/COMMIT`
 **Do not apply migrations via the Supabase SQL Editor** — it leaves no trace in `git log` and bypasses the audit trail.
 
 `sql/schema.sql` is the canonical end-state document. A fresh clone + apply of every migration in order should yield a DB equivalent to `sql/schema.sql`.
+
+## Print verification
+
+Phase 4.3 DoD: the dashboard must print cleanly to letter-size PDF. Re-verify on every PR touching `web/app/globals.css`, `web/components/ratio-matrix.tsx`, or `web/app/ratio/[ratio_id]/page.tsx`.
+
+### Procedure
+
+```bash
+cd web
+npm run build
+npm start  # serves the production build on http://localhost:3000
+```
+
+In a second shell:
+
+```bash
+CHROME="/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+"$CHROME" --headless=new --disable-gpu --no-sandbox \
+  --virtual-time-budget=10000 --no-pdf-header-footer \
+  --print-to-pdf=docs/screenshots/print-summary.pdf \
+  http://localhost:3000
+"$CHROME" --headless=new --disable-gpu --no-sandbox \
+  --virtual-time-budget=10000 --no-pdf-header-footer \
+  --print-to-pdf=docs/screenshots/print-ratio-nim.pdf \
+  http://localhost:3000/ratio/nim
+```
+
+`--virtual-time-budget=10000` gives Recharts ~10 seconds of virtual time to hydrate before the snapshot — without it, the trend and distribution charts capture as empty containers.
+
+Manual alternative: open each URL in Chrome → Cmd-P → Save as PDF → US Letter → Default margins.
+
+### Acceptance criteria
+
+- Letter size (8.5×11in); 0.5in margins (`@page` rule in `globals.css`).
+- Black text on white. No tints — anchor navy, quartile green/red, amber/red regulatory all dropped via the `*:not(svg, svg *)` color reset in `@media print`.
+- Chrome hidden: `AnchorSelect`, `WorkbookDownload`, sort carets (`↑`/`↓`/`↕`), section-toggle chevrons (`▾`/`▸`), drilldown `← Matrix` link.
+- Page-2 thead repeat shows the full header row (bank name + cert subtitle for all peers) — verifies the `print:hidden` `<button>` + `print:block` `<span>` sibling fallback pattern in `SortHeader` / `AnchorCertTrigger`.
+- All 30 ratios visible on the matrix print across however many pages it takes; data rows never split mid-cell (`print:break-inside-avoid` on each data `<tr>`).
+- Drilldown trend (page 2) + peer distribution (page 3) each on their own page (`print:break-before-page` on each `<section>`).
+- Trend chart anchor line is distinctly heavier (2.5px) and in `--color-accent` navy; peers are 1px `--color-text-tertiary` gray. Strip-plot anchor dot is 6px navy; peer dots are 4px gray.
+- Negatives in parentheses; numerics right-aligned; tabular-nums spacing intact.
+
+### Known limitations
+
+- **Collapsed-section rows are absent from the PDF.** `RatioMatrix` filters collapsed-category rows out of the TanStack row model at the React data layer, not via CSS. If a user collapses a category before printing, that category's ratios are absent from the PDF. Print after expanding all categories to capture the full set.
+- **Strip-plot on drilldown page 3 sits flush-left at ~55% width.** Cosmetic — the underlying `ResponsiveContainer` computes a narrower width in the print viewport than expected. The chart data is correct; the framing is just under-sized. Tracked as a Phase 4.3 follow-up.

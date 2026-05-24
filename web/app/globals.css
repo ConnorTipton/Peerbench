@@ -64,3 +64,56 @@ body {
     color: var(--color-text-tertiary);
   }
 }
+
+/*
+ * Print CSS — docs/design.md §Print CSS.
+ * Letter-size, 0.5in margins, black-on-white, no backgrounds, no tints.
+ * Tabular-nums + right-align preserved (inherited from base body styles).
+ * Verify on /  and /ratio/nim per docs/operations.md §Print verification.
+ */
+@page {
+  size: letter;
+  margin: 0.5in;
+}
+
+@media print {
+  html,
+  body {
+    background: white;
+    color: black;
+    font-size: var(--text-table-data); /* 12px — tighter than screen body for density on paper */
+  }
+
+  /* Drop all conditional-formatting and anchor tints. design.md §Print CSS:
+     "Black text on white. No background colors, no tints."
+     Scope the color reset to exclude SVG descendants so Recharts strokes
+     (anchor 2.5px --color-accent, peers 1px --color-text-tertiary on the
+     drilldown trend chart) survive — otherwise charts print monochrome
+     with no anchor distinction. */
+  *:not(svg, svg *),
+  *::before,
+  *::after {
+    background: transparent !important;
+    color: black !important;
+    box-shadow: none !important;
+  }
+
+  /* Keep grid lines — they remain useful on paper for table readability.
+     Re-assert with a true black border so it survives the wildcard color reset. */
+  th,
+  td {
+    border-color: black !important;
+  }
+
+  /* Sticky headers turn into in-flow headers on paper — sticky positioning
+     creates layout glitches in print. */
+  .sticky {
+    position: static !important;
+  }
+
+  /* Links: drop hover decoration, keep text. URLs not surfaced (designed
+     for in-hand review, not for re-typing URLs). */
+  a {
+    text-decoration: none !important;
+  }
+}

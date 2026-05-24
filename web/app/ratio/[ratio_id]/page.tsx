@@ -81,7 +81,7 @@ export default async function RatioDrilldownPage({
         <div className="flex items-baseline gap-4">
           <Link
             href={matrixBackHref}
-            className="rounded-sm text-body text-text-secondary focus:outline-none focus-visible:outline-1 focus-visible:outline-accent hover:text-accent"
+            className="rounded-sm text-body text-text-secondary focus:outline-none focus-visible:outline-1 focus-visible:outline-accent hover:text-accent print:hidden"
           >
             ← Matrix
           </Link>
@@ -133,7 +133,7 @@ export default async function RatioDrilldownPage({
         )}
       </section>
 
-      <section className="mb-6">
+      <section className="mb-6 print:break-before-page">
         <h2 className="mb-2 text-section-header font-semibold text-text">
           8-quarter trend
         </h2>
@@ -151,7 +151,7 @@ export default async function RatioDrilldownPage({
         )}
       </section>
 
-      <section className="mb-6">
+      <section className="mb-6 print:break-before-page">
         <h2 className="mb-2 text-section-header font-semibold text-text">
           Peer distribution
           {latestQuarter && (
