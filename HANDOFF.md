@@ -51,9 +51,7 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
      fragile if `quarter_id` ever stops matching `YYYY-Qn` (e.g. 10th
      quarter). Docstring documents; a `CHECK` constraint at the DB level
      would make it airtight.
-  7. (PR #20) CLAUDE.md still says "Supabase MCP (read-only in dev)" —
-     the MCP config has been flipped to read-write; reconcile this line.
-  8. (PR #20) Codex false-positive logged for the record: it claimed
+  7. (PR #20) Codex false-positive logged for the record: it claimed
      PUT+x-upsert can't create initial objects in an empty bucket. Task 5
      smoke test empirically disproved this (two 200s on a fresh empty
      bucket). If a future reviewer raises the same concern, point at the

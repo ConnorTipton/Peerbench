@@ -32,7 +32,7 @@ Excel comp workbook export (Phase 4) via `uv run peerbench export` — reads fro
 
 ## MCP servers
 - Context7 — version-specific docs lookup
-- Supabase MCP (read-only in dev) — DB schema + safe SQL
+- Supabase MCP — DB schema, SQL, migrations, storage bucket management
 - GitHub MCP — PR review automation
 - Next.js DevTools MCP — diagnostics + upgrades
 
