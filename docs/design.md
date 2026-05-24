@@ -118,7 +118,7 @@ The Phase 4 Excel comp workbook (`uv run peerbench export`) must mirror this spe
 - **Color coding:** inputs `--color-accent` (`#1E40AF`), computed values black, hardcoded values `--color-positive` (`#15803D`).
 - **Number formats:** currency `$#,##0;($#,##0)`, percentages `0.00%`. Negatives in parentheses.
 - **Conditional formatting** on Summary and time-series tabs: light positive tint for top quartile, light negative tint for bottom quartile, direction-aware per ratio.
-- **Frozen panes (Summary tab):** top 2 rows + first 2 columns (openpyxl `freeze_panes = "C3"`). First column is the ratio category, second is the ratio name — both stay visible during horizontal scroll across peer columns. Other tabs use single-column or single-row freezes per tab semantics (see `src/peerbench/export/writer.py`).
+- **Frozen panes (Summary tab):** top 2 rows + first 2 columns (openpyxl `freeze_panes = "C3"`). Column A is the "Category" header — section-header rows span it; data rows leave it blank. Column B is the ratio name. Pinning both keeps the section context and ratio label visible during horizontal scroll across peer columns. Other tabs use single-column or single-row freezes per tab semantics (see `src/peerbench/export/writer.py`).
 - **Right-align all numerics.** Tabular-nums font.
 
 ## Don'ts
