@@ -309,7 +309,7 @@ export function RatioMatrix({
   });
 
   return (
-    <div className="flex-1 min-h-0 overflow-auto border border-border">
+    <div className="flex-1 min-h-0 overflow-auto border border-border print:overflow-visible print:min-h-0 print:flex-none">
       <table className="border-separate border-spacing-0 w-full">
         <thead className="bg-surface">
           {table.getHeaderGroups().map((hg) => (
@@ -359,7 +359,7 @@ export function RatioMatrix({
               const isCollapsed = collapsed.has(r.category);
               const label = CATEGORY_LABELS[r.category];
               return (
-                <tr key={row.id}>
+                <tr key={row.id} className="print:break-after-avoid">
                   <td
                     colSpan={columns.length}
                     className="sticky left-0 p-0 border-b border-border bg-surface-alt"
@@ -622,20 +622,25 @@ function QuartileTooltipBody({
 
 function AnchorCertTrigger({ name, cert }: { name: string; cert: number }) {
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <button
-          type="button"
-          className="block w-full cursor-help rounded-sm text-right text-table-data text-text-tertiary focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
-          aria-label={`${name} is the anchor bank — navy tint marks this column`}
-        >
-          Anchor · Cert {cert}
-        </button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" align="end">
-        <AnchorHeaderTooltipBody name={name} cert={cert} />
-      </TooltipContent>
-    </Tooltip>
+    <>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="block w-full cursor-help rounded-sm text-right text-table-data text-text-tertiary focus:outline-none focus-visible:outline-1 focus-visible:outline-accent print:hidden"
+            aria-label={`${name} is the anchor bank — navy tint marks this column`}
+          >
+            Anchor · Cert {cert}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" align="end">
+          <AnchorHeaderTooltipBody name={name} cert={cert} />
+        </TooltipContent>
+      </Tooltip>
+      <span className="hidden text-right text-table-data text-text-tertiary print:block">
+        Anchor · Cert {cert}
+      </span>
+    </>
   );
 }
 
@@ -722,21 +727,26 @@ function SortHeader({
 }) {
   const indicator = dir === "asc" ? "↑" : dir === "desc" ? "↓" : "↕";
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="block w-full cursor-pointer rounded-sm text-right text-table-data font-semibold transition-colors duration-200 ease-in-out focus:outline-none focus-visible:outline-1 focus-visible:outline-accent"
-      aria-label={`Sort by ${name}`}
-    >
-      <span className="flex items-baseline justify-end gap-1 text-text">
-        <span>{name}</span>
-        <span
-          aria-hidden="true"
-          className={`${dir ? "text-accent" : "text-text-tertiary"} print:hidden`}
-        >
-          {indicator}
+    <>
+      <button
+        type="button"
+        onClick={onClick}
+        className="block w-full cursor-pointer rounded-sm text-right text-table-data font-semibold transition-colors duration-200 ease-in-out focus:outline-none focus-visible:outline-1 focus-visible:outline-accent print:hidden"
+        aria-label={`Sort by ${name}`}
+      >
+        <span className="flex items-baseline justify-end gap-1 text-text">
+          <span>{name}</span>
+          <span
+            aria-hidden="true"
+            className={dir ? "text-accent" : "text-text-tertiary"}
+          >
+            {indicator}
+          </span>
         </span>
+      </button>
+      <span className="hidden text-right text-table-data font-semibold text-text print:block">
+        {name}
       </span>
-    </button>
+    </>
   );
 }
