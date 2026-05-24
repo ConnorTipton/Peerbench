@@ -18,12 +18,6 @@
   --color-text: #0f172a;
   --color-text-secondary: #64748b;
   --color-text-tertiary: #94a3b8;
-  /* Anchor-cell tint — docs/design.md §Anchor highlighting.
-     6% --color-primary blend over each zebra row tone. Tokenized so
-     ratio-matrix.tsx and src/peerbench/export/style.py reference a
-     single source of truth instead of inlining color-mix() twice. */
-  --color-anchor-tint: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
-  --color-anchor-tint-alt: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-alt));
 
   /* Typography — docs/design.md §Typography. Inter loaded via next/font in layout.tsx. */
   --font-sans: var(--font-inter);
@@ -32,6 +26,17 @@
   --text-body: 14px;
   --text-table-data: 12px;
   --text-superscript: 10px;
+}
+
+/* Derived anchor-cell tints — docs/design.md §Anchor highlighting.
+   Live outside @theme because Tailwind v4 cannot resolve nested var()
+   chains in color-mix() at theme-parse time. As plain :root custom
+   properties they resolve at use time (CSS spec), which is what
+   ratio-matrix.tsx + style.py need. Will be referenced once G3 / G7
+   replace the inlined color-mix() expressions at those call sites. */
+:root {
+  --color-anchor-tint: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  --color-anchor-tint-alt: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-alt));
 }
 
 html,
@@ -44,12 +49,18 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-/* Section-eyebrow label — 12px uppercase tertiary text used as H2 above
-   definition / formula / notes blocks on drilldown pages. Tokenized per
-   design-critic PR-E soft #4. */
-.eyebrow-label {
-  font-size: var(--text-table-data);
-  text-transform: uppercase;
-  letter-spacing: 0.05em; /* tracking-wide */
-  color: var(--color-text-tertiary);
+@layer components {
+  /* Section-eyebrow label — 12px uppercase tertiary text used as H2 above
+     definition / formula / notes blocks on drilldown pages. Tokenized per
+     design-critic PR-E soft #4. Letter-spacing references Tailwind's
+     --tracking-wide token so this stays in lockstep with the
+     `tracking-wide` utility it replaces. Wrapped in @layer components
+     so future component classes can be overridden by utilities (Tailwind
+     v4 cascade convention). */
+  .eyebrow-label {
+    font-size: var(--text-table-data);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wide);
+    color: var(--color-text-tertiary);
+  }
 }
