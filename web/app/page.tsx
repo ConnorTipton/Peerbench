@@ -55,11 +55,13 @@ export default async function HomePage({
             As of {formatReportDate(data.quarter.report_date)}
           </span>
           <Suspense fallback={null}>
-            <WorkbookDownload />
+            <div className="print:hidden">
+              <WorkbookDownload />
+            </div>
           </Suspense>
         </div>
       </header>
-      <div className="mb-4">
+      <div className="mb-4 print:hidden">
         <AnchorSelect institutions={data.institutions} anchorCert={anchorCert} />
       </div>
       <RatioMatrix
