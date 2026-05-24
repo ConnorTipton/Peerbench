@@ -16,7 +16,7 @@ export async function WorkbookDownload() {
     <div className="flex flex-col items-end gap-0.5">
       <a
         href={manifest.url}
-        className="text-body text-accent hover:underline"
+        className="text-table-data text-accent hover:underline"
         download
       >
         Download workbook (.xlsx)

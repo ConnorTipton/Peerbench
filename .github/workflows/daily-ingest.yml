@@ -59,7 +59,11 @@ jobs:
 
       - name: Upload workbook to Supabase Storage
         run: |
-          workbook=$(ls ./output/peerbench_*.xlsx | head -1)
+          workbook=$(ls ./output/peerbench_*.xlsx 2>/dev/null | head -1)
+          if [ -z "$workbook" ]; then
+            echo "no workbook found in ./output/ — export step may have failed" >&2
+            exit 1
+          fi
           uv run peerbench upload-workbook --file "$workbook"
 
       - name: Heartbeat

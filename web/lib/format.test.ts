@@ -97,16 +97,16 @@ describe("formatRelativeDate", () => {
     expect(formatRelativeDate("2026-05-23T03:00:00Z")).toBe("today");
   });
 
-  it("returns 'yesterday' for a timestamp 24–48h old", () => {
-    expect(formatRelativeDate("2026-05-22T08:00:00Z")).toBe("yesterday");
+  it("returns ISO date for a 24-48h old timestamp", () => {
+    expect(formatRelativeDate("2026-05-22T08:00:00Z")).toBe("2026-05-22");
   });
 
-  it("returns 'N days ago' for 2–7 days old", () => {
-    expect(formatRelativeDate("2026-05-20T12:00:00Z")).toBe("3 days ago");
+  it("returns ISO date for a 3-day-old timestamp", () => {
+    expect(formatRelativeDate("2026-05-20T12:00:00Z")).toBe("2026-05-20");
   });
 
-  it("returns an absolute date for >7 days old", () => {
-    expect(formatRelativeDate("2026-05-10T12:00:00Z")).toBe("on May 10, 2026");
+  it("returns ISO date for a timestamp weeks old", () => {
+    expect(formatRelativeDate("2026-05-10T12:00:00Z")).toBe("2026-05-10");
   });
 
   it("returns 'today' for a future timestamp (clock skew)", () => {

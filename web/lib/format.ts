@@ -52,8 +52,13 @@ export function formatReportDate(isoDate: string): string {
 }
 
 /**
- * Render an ISO-8601 timestamp as a human-relative phrase for the workbook
- * download freshness subtitle. Future timestamps (clock skew) clamp to "today".
+ * Render an ISO-8601 timestamp as a freshness suffix for the workbook
+ * download subtitle. Same-day timestamps (within 24h, including future
+ * timestamps from clock skew) collapse to "today" for the fresh-data
+ * affordance; older timestamps render as a bare YYYY-MM-DD ISO date so a
+ * banker can anchor the file to a specific reporting day. The date style
+ * matches `formatReportDate` so the header subtitle column reads as a
+ * coherent date convention.
  */
 export function formatRelativeDate(iso: string): string {
   const then = new Date(iso);
@@ -62,9 +67,5 @@ export function formatRelativeDate(iso: string): string {
   const dayMs = 24 * 60 * 60 * 1000;
 
   if (diffMs < dayMs) return "today";
-  if (diffMs < 2 * dayMs) return "yesterday";
-  const days = Math.floor(diffMs / dayMs);
-  if (days <= 7) return `${days} days ago`;
-
-  return `on ${then.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}`;
+  return then.toISOString().slice(0, 10);
 }
