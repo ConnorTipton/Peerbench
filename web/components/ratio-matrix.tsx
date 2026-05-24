@@ -338,8 +338,10 @@ export function RatioMatrix({
                         : "z-20 text-right min-w-40",
                     ].join(" ")}
                     style={{
+                      // Headers don't zebra — sticky top row never alternates,
+                      // so the surface-blend tint (not -alt) is always correct.
                       background: isAnchorCol
-                        ? "color-mix(in srgb, var(--color-primary) 6%, var(--color-surface))"
+                        ? "var(--color-anchor-tint)"
                         : "var(--color-surface)",
                     }}
                   >
@@ -548,8 +550,13 @@ function composeCellBg({
   threshold: ThresholdResult | null;
   bucket: Bucket;
 }): string {
+  // Anchor tint comes from globals.css :root tokens — one per zebra row tone.
+  // Maintains a 1:1 mapping with the surface/surface-alt zebra to match the
+  // unchanged 6% blend without inlining color-mix here.
   const base = isAnchorCol
-    ? `color-mix(in srgb, var(--color-primary) 6%, ${zebra})`
+    ? zebra === "var(--color-surface-alt)"
+      ? "var(--color-anchor-tint-alt)"
+      : "var(--color-anchor-tint)"
     : zebra;
   if (threshold?.level === "red") {
     return `color-mix(in srgb, var(--color-negative) 20%, ${base})`;

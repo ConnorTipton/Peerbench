@@ -37,6 +37,8 @@ Conditional-formatting tints derive from `--color-positive`, `--color-negative`,
 
 Never use full-saturation fills on data cells.
 
+**Derived tokens.** Tokens whose values compose other tokens via `color-mix()` (e.g. `--color-anchor-tint`) live in `:root` rather than `@theme`. Tailwind v4 can't resolve nested `var()` chains at theme-parse time and silently drops the declaration. They are still canonical design-system tokens; the `:root` placement is a build-time accommodation, not an escape hatch for ad-hoc colors.
+
 ## Typography
 
 - **Sans-serif:** Inter, with `font-variant-numeric: tabular-nums` enabled **globally** for all numeric content (set in the root `body` styles via `@theme`).
@@ -51,6 +53,10 @@ Never use full-saturation fills on data cells.
 | `--text-superscript`    | 10px  | Inline annotation markers (restatement `r`, regulatory `△` flag, quartile `●` indicator) |
 
 Weights: 600 for headers, 500 for section labels, 400 for body and data cells.
+
+**Recharts text bridge.** Recharts components need numeric `fontSize` props (can't read CSS vars). `web/lib/chart-tokens.ts` mirrors the typography tokens above as JS numbers — Recharts axis ticks use `--text-table-data` (12); axis labels use `--text-superscript` (10). Never inline a `fontSize` literal in chart code; import from `chart-tokens.ts`.
+
+**Eyebrow label.** Section subheadings on drilldown pages (e.g. `/ratio/<id>` Definition / Formula / Notes) use the `.eyebrow-label` class in `web/app/globals.css` (`@layer components`): 12px (`--text-table-data`), uppercase, `tracking-wide`, `--color-text-tertiary`. Reach for `.eyebrow-label` rather than re-typing the four-utility combination — keeps the eyebrow visual consistent across pages.
 
 ## Layout rules
 
@@ -80,8 +86,11 @@ Direction-aware cell tinting on data tables.
 
 The anchor column (currently MidFirst, Cert 4063) gets a low-opacity `--color-primary` tint across every cell so the user can locate it without scanning bank names. The anchor tint is the lowest layer in the per-cell background; quartile and regulatory tints layer on top.
 
+The tint is `--color-primary` at **6%** (`color-mix(in srgb, var(--color-primary) 6%, ...)`), deliberately below the `/10` quartile floor so it never competes with conditional-formatting layers. Encoded as the `--color-anchor-tint` / `--color-anchor-tint-alt` derived tokens (one per zebra row tone). The Excel export mirrors the same 6% blend via `src/peerbench/export/style.py`.
+
 - **Cert subtitle as tooltip trigger.** For the anchor column only, the cert subtitle in the column header reads `Anchor · Cert <n>` and is a focusable `<button>` wrapped in a Radix tooltip. Hover/focus reveals the bank name, the anchor designation, and how to switch via the bank selector. Non-anchor columns keep the plain `Cert <n>` text.
 - Switching the anchor via the selector re-applies the tint to the new column. The cert subtitle text and tooltip update accordingly with no extra plumbing — both are derived from `anchorCert` at render time.
+- **Trend-chart anchor stroke.** On the `/ratio/<id>` 8-quarter trend chart, the anchor bank renders as a 2.5px stroke in `--color-accent`, drawn last so it sits on top of peer-line overlap. Peers render as 1px strokes in `--color-text-tertiary`. Strip-plot points (peer distribution panel): 6px anchor dot in `--color-accent`, 4px peer dots in `--color-text-tertiary`.
 
 ## Restatement indicator
 
@@ -115,7 +124,7 @@ The Phase 4 Excel comp workbook (`uv run peerbench export`) must mirror this spe
 - **Color coding:** inputs `--color-accent` (`#1E40AF`), computed values black, hardcoded values `--color-positive` (`#15803D`).
 - **Number formats:** currency `$#,##0;($#,##0)`, percentages `0.00%`. Negatives in parentheses.
 - **Conditional formatting** on Summary and time-series tabs: light positive tint for top quartile, light negative tint for bottom quartile, direction-aware per ratio.
-- **Frozen panes:** top 2 rows + first column on Summary.
+- **Frozen panes (Summary tab):** top 2 rows + first 2 columns (openpyxl `freeze_panes = "C3"`). Column A is the "Category" header — section-header rows span it; data rows leave it blank. Column B is the ratio name. Pinning both keeps the section context and ratio label visible during horizontal scroll across peer columns. Other tabs use single-column or single-row freezes per tab semantics (see `src/peerbench/export/writer.py`).
 - **Right-align all numerics.** Tabular-nums font.
 
 ## Don'ts

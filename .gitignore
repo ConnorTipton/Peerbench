@@ -102,3 +102,8 @@ backups/
 .DS_Store
 Thumbs.db
 .gstack/
+
+# ============================================================
+# Git worktrees (Claude Code agent isolation)
+# ============================================================
+.worktrees/

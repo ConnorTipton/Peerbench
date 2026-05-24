@@ -96,7 +96,7 @@ export default async function RatioDrilldownPage({
 
       <section className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2">
         <div>
-          <h2 className="mb-1 text-table-data uppercase tracking-wide text-text-tertiary">
+          <h2 className="mb-1 eyebrow-label">
             Definition
           </h2>
           <p className="text-body text-text">
@@ -111,7 +111,7 @@ export default async function RatioDrilldownPage({
           </p>
         </div>
         <div>
-          <h2 className="mb-1 text-table-data uppercase tracking-wide text-text-tertiary">
+          <h2 className="mb-1 eyebrow-label">
             Formula
           </h2>
           <p className="text-body text-text">
@@ -125,7 +125,7 @@ export default async function RatioDrilldownPage({
         </div>
         {def.notes && (
           <div className="md:col-span-2">
-            <h2 className="mb-1 text-table-data uppercase tracking-wide text-text-tertiary">
+            <h2 className="mb-1 eyebrow-label">
               Notes
             </h2>
             <p className="text-body text-text-secondary">{def.notes}</p>

@@ -44,7 +44,13 @@ HARDCODED_GREEN = POSITIVE  # --color-positive for hardcoded constants
 HEADER_FILL_HEX = TEXT  # --color-text (dark slate) for header band
 HEADER_FONT_HEX = SURFACE  # white text on header band
 SECTION_HEADER_FILL_HEX = SURFACE_ALT  # zebra row tone for section headers
-ANCHOR_TINT_HEX = _tint(PRIMARY, 0.06)  # --color-primary /6 per HANDOFF
+# Matches dashboard --color-anchor-tint (web/app/globals.css :root).
+# Both apply 6% --color-primary over the cell background. Keep in sync.
+# (Lives in :root rather than @theme because Tailwind v4 drops color-mix()
+# with nested var() chains from theme-parse output.)
+# No --color-anchor-tint-alt equivalent: the Excel Summary doesn't zebra
+# data rows, so a single flat anchor fill suffices here.
+ANCHOR_TINT_HEX = _tint(PRIMARY, 0.06)
 QUARTILE_TOP_HEX = _tint(POSITIVE, 0.10)  # /10 per design.md
 QUARTILE_BOTTOM_HEX = _tint(NEGATIVE, 0.10)  # /10 per design.md
 THRESHOLD_AMBER_HEX = _tint(AMBER, 0.15)  # /15 per design.md

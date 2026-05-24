@@ -28,6 +28,17 @@
   --text-superscript: 10px;
 }
 
+/* Derived anchor-cell tints — docs/design.md §Anchor highlighting.
+   Live outside @theme because Tailwind v4 cannot resolve nested var()
+   chains in color-mix() at theme-parse time. As plain :root custom
+   properties they resolve at use time (CSS spec), which is what
+   ratio-matrix.tsx needs. The Python export (src/peerbench/export/
+   style.py) mirrors the 6% blend statically with the same intent. */
+:root {
+  --color-anchor-tint: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface));
+  --color-anchor-tint-alt: color-mix(in srgb, var(--color-primary) 6%, var(--color-surface-alt));
+}
+
 html,
 body {
   background: var(--color-surface);
@@ -36,4 +47,20 @@ body {
   font-size: var(--text-body);
   /* Global tabular-nums per docs/design.md §Typography. */
   font-variant-numeric: tabular-nums;
+}
+
+@layer components {
+  /* Section-eyebrow label — 12px uppercase tertiary text used as H2 above
+     definition / formula / notes blocks on drilldown pages. Tokenized per
+     design-critic PR-E soft #4. Letter-spacing references Tailwind's
+     --tracking-wide token so this stays in lockstep with the
+     `tracking-wide` utility it replaces. Wrapped in @layer components
+     so future component classes can be overridden by utilities (Tailwind
+     v4 cascade convention). */
+  .eyebrow-label {
+    font-size: var(--text-table-data);
+    text-transform: uppercase;
+    letter-spacing: var(--tracking-wide);
+    color: var(--color-text-tertiary);
+  }
 }
