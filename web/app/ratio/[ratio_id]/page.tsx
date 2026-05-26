@@ -28,6 +28,11 @@ export default async function RatioDrilldownPage({
   const { ratio_id } = await params;
   const series = await getRatioTimeSeries(ratio_id);
   if (!series) notFound();
+  // Belt-and-suspenders: `getRatioTimeSeries` already returns null when
+  // the ratio has no non-null values, but the render code below treats
+  // `latestQuarter` as definitely-defined. If a future refactor loosens
+  // the upstream early-return, this catches it before a render crash.
+  if (series.quarters.length === 0) notFound();
 
   const { anchor } = await searchParams;
   const anchorRaw = firstParam(anchor);
@@ -37,32 +42,29 @@ export default async function RatioDrilldownPage({
       ? requested
       : DEFAULT_ANCHOR_CERT;
 
-  const latestQuarter =
-    series.quarters.length > 0
-      ? series.quarters[series.quarters.length - 1]
-      : null;
+  // `getRatioTimeSeries` returns null when the ratio has zero rows, so
+  // reaching this code guarantees at least one quarter with data.
+  const latestQuarter = series.quarters[series.quarters.length - 1];
 
   // Suppressed cells (e.g. CBLR filers' tier1_rbc) are excluded from the
   // strip plot to match the heat-map quartile-cutoff exclusion — same
   // reasoning, same data semantics.
-  const distributionPoints: DistributionPoint[] = latestQuarter
-    ? series.institutions
-        .map((inst): DistributionPoint | null => {
-          const cell = series.values.get(
-            timeSeriesPointKey(inst.cert, latestQuarter.quarter_id),
-          );
-          if (!cell || cell.value === null || cell.data_quality === "suppressed") {
-            return null;
-          }
-          return {
-            cert: inst.cert,
-            name: inst.name,
-            value: cell.value,
-            isAnchor: inst.cert === anchorCert,
-          };
-        })
-        .filter((p): p is DistributionPoint => p !== null)
-    : [];
+  const distributionPoints: DistributionPoint[] = series.institutions
+    .map((inst): DistributionPoint | null => {
+      const cell = series.values.get(
+        timeSeriesPointKey(inst.cert, latestQuarter.quarter_id),
+      );
+      if (!cell || cell.value === null || cell.data_quality === "suppressed") {
+        return null;
+      }
+      return {
+        cert: inst.cert,
+        name: inst.name,
+        value: cell.value,
+        isAnchor: inst.cert === anchorCert,
+      };
+    })
+    .filter((p): p is DistributionPoint => p !== null);
 
   const def = series.ratioDef;
 
@@ -90,7 +92,7 @@ export default async function RatioDrilldownPage({
           </h1>
         </div>
         <span className="text-body text-text-secondary">
-          {latestQuarter ? `As of ${formatReportDate(latestQuarter.report_date)}` : "No data"}
+          As of {formatReportDate(latestQuarter.report_date)}
         </span>
       </header>
 
@@ -137,30 +139,24 @@ export default async function RatioDrilldownPage({
         <h2 className="mb-2 text-section-header font-semibold text-text">
           8-quarter trend
         </h2>
-        {series.quarters.length > 0 ? (
-          <div className="border border-border bg-surface p-3">
-            <RatioTrendChart
-              quarters={series.quarters}
-              institutions={series.institutions}
-              values={series.values}
-              anchorCert={anchorCert}
-            />
-          </div>
-        ) : (
-          <EmptyState />
-        )}
+        <div className="border border-border bg-surface p-3">
+          <RatioTrendChart
+            quarters={series.quarters}
+            institutions={series.institutions}
+            values={series.values}
+            anchorCert={anchorCert}
+          />
+        </div>
       </section>
 
       <section className="mb-6 print:break-before-page">
         <h2 className="mb-2 text-section-header font-semibold text-text">
           Peer distribution
-          {latestQuarter && (
-            <span className="ml-2 text-body font-normal text-text-tertiary">
-              · {latestQuarter.quarter_id}
-            </span>
-          )}
+          <span className="ml-2 text-body font-normal text-text-tertiary">
+            · {latestQuarter.quarter_id}
+          </span>
         </h2>
-        {distributionPoints.length > 0 && latestQuarter ? (
+        {distributionPoints.length > 0 ? (
           <div className="border border-border bg-surface p-3">
             <RatioDistribution
               points={distributionPoints}
@@ -168,17 +164,14 @@ export default async function RatioDrilldownPage({
             />
           </div>
         ) : (
-          <EmptyState />
+          // Reachable when every peer's value is null or suppressed (e.g.
+          // CBLR filers on tier1_rbc) — distinct from the zero-data case,
+          // which `getRatioTimeSeries` short-circuits to 404 upstream.
+          <div className="border border-border bg-surface-alt p-6 text-center text-body text-text-secondary">
+            No data available for this ratio in the current peer set.
+          </div>
         )}
       </section>
     </main>
-  );
-}
-
-function EmptyState() {
-  return (
-    <div className="border border-border bg-surface-alt p-6 text-center text-body text-text-secondary">
-      No data available for this ratio in the current peer set.
-    </div>
   );
 }

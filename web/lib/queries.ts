@@ -92,28 +92,54 @@ export async function getMatrixData(): Promise<MatrixData> {
   if (latestRatioQuarter.error) throw latestRatioQuarter.error;
   const latestQuarterId = latestRatioQuarter.data.quarter_id;
 
-  const [quarterRes, institutionsRes, defsRes, ratiosRes, restatementsRes] = await Promise.all([
-    supabase.from("quarters").select("*").eq("quarter_id", latestQuarterId).single(),
-    supabase.from("institutions").select("*").eq("active", true),
-    supabase.from("ratio_defs").select("*"),
-    supabase.from("ratios").select("*").eq("quarter_id", latestQuarterId),
-    // Pull the full restatement row (incl. field_code + old/new values) so
-    // Sprint 2's per-cell tooltip lands without a second round-trip.
-    supabase
-      .from("quality_log")
-      .select("cert, quarter_id, field_code, event_type, old_value, new_value, detected_at")
-      .eq("quarter_id", latestQuarterId)
-      .eq("event_type", "restated"),
-  ]);
+  const [quarterRes, institutionsRes, defsRes, ratiosRes, restatementsRes, presentRatiosRes] =
+    await Promise.all([
+      supabase.from("quarters").select("*").eq("quarter_id", latestQuarterId).single(),
+      supabase.from("institutions").select("*").eq("active", true),
+      supabase.from("ratio_defs").select("*"),
+      supabase.from("ratios").select("*").eq("quarter_id", latestQuarterId),
+      // Pull the full restatement row (incl. field_code + old/new values) so
+      // Sprint 2's per-cell tooltip lands without a second round-trip.
+      supabase
+        .from("quality_log")
+        .select("cert, quarter_id, field_code, event_type, old_value, new_value, detected_at")
+        .eq("quarter_id", latestQuarterId)
+        .eq("event_type", "restated"),
+      // Ratios whose handler has ever produced a non-null value. Hides
+      // defs whose handler always raises NotImplementedError (e.g.
+      // `top_loan_cat` pending RC-C field expansion — the ratio engine
+      // writes `partial` rows with `value=null` for those, so filtering
+      // on row presence isn't enough). Whole-history scope, not
+      // latest-quarter, so a ratio with values in older quarters but a
+      // gap in the latest still keeps its matrix row (em-dashes are the
+      // honest read for a one-quarter gap) — the `ratiosRes` query above
+      // is latest-quarter-scoped and remains the source of cell values.
+      //
+      // TODO(scale): this returns one row per non-null ratio value
+      // (~1.1k today, ~150/quarter growth). Push the DISTINCT into
+      // Postgres via a `v_ratios_with_data` view to cap the wire
+      // response at ~30 rows before this brushes PostgREST's row cap.
+      supabase
+        .from("ratios")
+        .select("ratio_id")
+        .not("value", "is", null)
+        .limit(50000),
+    ]);
   if (quarterRes.error) throw quarterRes.error;
   if (institutionsRes.error) throw institutionsRes.error;
   if (defsRes.error) throw defsRes.error;
   if (ratiosRes.error) throw ratiosRes.error;
   if (restatementsRes.error) throw restatementsRes.error;
+  if (presentRatiosRes.error) throw presentRatiosRes.error;
   const quarter = quarterRes.data as Quarter;
 
+  const presentRatioIds = new Set(
+    (presentRatiosRes.data as { ratio_id: string }[]).map((r) => r.ratio_id),
+  );
   const institutions = sortInstitutions(institutionsRes.data as Institution[]);
-  const ratioGroups = groupRatioDefs(defsRes.data as RatioDef[]);
+  const ratioGroups = groupRatioDefs(
+    (defsRes.data as RatioDef[]).filter((d) => presentRatioIds.has(d.ratio_id)),
+  );
 
   const cells = new Map<string, MatrixCell>();
   for (const row of ratiosRes.data as RatioValue[]) {
@@ -185,11 +211,7 @@ export async function getRatioTimeSeries(
   // Pull (a) all distinct quarter_ids that have at least one row for THIS
   // ratio (newest first; take the top `windowSize`) and (b) the active peer
   // set in parallel — institutions are orthogonal to quarter discovery and
-  // must always be returned. Returning `institutions: []` on the empty-data
-  // branch (e.g. `top_loan_cat`, where the handler raises NotImplementedError
-  // so the ratio has no `ratios` rows) silently broke the drilldown's
-  // anchor validation: any valid `?anchor=` would fail membership and the
-  // back-link to the matrix would drop the user's selection.
+  // must always be returned.
   //
   // Anchoring quarter discovery on `ratios` (not `quarters`) is the same
   // correctness argument as `getMatrixData`: an ingest that wrote a
@@ -200,6 +222,12 @@ export async function getRatioTimeSeries(
       .from("ratios")
       .select("quarter_id")
       .eq("ratio_id", ratioId)
+      // Filter on non-null value to match the matrix-level visibility
+      // rule in `getMatrixData`. The ratio engine writes `partial` rows
+      // with `value=null` for handlers that raise NotImplementedError
+      // (e.g. `top_loan_cat`); those rows shouldn't keep the drilldown
+      // alive when the matrix has already hidden the ratio.
+      .not("value", "is", null)
       .order("quarter_id", { ascending: false }),
     supabase.from("institutions").select("*").eq("active", true),
   ]);
@@ -212,19 +240,14 @@ export async function getRatioTimeSeries(
     ratioQuartersRes.data as { quarter_id: string }[],
     windowSize,
   );
-  const institutions = sortInstitutions(institutionsRes.data as Institution[]);
 
-  if (recentQuarterIds.length === 0) {
-    // Ratio is registered but has never produced a row — render an empty
-    // state. Institutions are still returned so anchor validation in the
-    // route handler accepts any active peer's cert.
-    return {
-      ratioDef,
-      quarters: [],
-      institutions,
-      values: new Map(),
-    };
-  }
+  // Ratio is registered but has never produced a row (e.g. `top_loan_cat`,
+  // whose handler raises NotImplementedError pending RC-C field expansion).
+  // Return null so the route 404s instead of rendering an empty drilldown —
+  // symmetric with the matrix filter in `getMatrixData`.
+  if (recentQuarterIds.length === 0) return null;
+
+  const institutions = sortInstitutions(institutionsRes.data as Institution[]);
 
   const [quartersRes, ratiosRes] = await Promise.all([
     supabase
