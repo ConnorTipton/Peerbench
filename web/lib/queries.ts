@@ -114,16 +114,9 @@ export async function getMatrixData(): Promise<MatrixData> {
       // gap in the latest still keeps its matrix row (em-dashes are the
       // honest read for a one-quarter gap) — the `ratiosRes` query above
       // is latest-quarter-scoped and remains the source of cell values.
-      //
-      // TODO(scale): this returns one row per non-null ratio value
-      // (~1.1k today, ~150/quarter growth). Push the DISTINCT into
-      // Postgres via a `v_ratios_with_data` view to cap the wire
-      // response at ~30 rows before this brushes PostgREST's row cap.
-      supabase
-        .from("ratios")
-        .select("ratio_id")
-        .not("value", "is", null)
-        .limit(50000),
+      // `v_ratios_with_data` is a security_invoker view that DISTINCTs
+      // server-side; defined in sql/migrations/0003_v_ratios_with_data.sql.
+      supabase.from("v_ratios_with_data").select("ratio_id"),
     ]);
   if (quarterRes.error) throw quarterRes.error;
   if (institutionsRes.error) throw institutionsRes.error;
