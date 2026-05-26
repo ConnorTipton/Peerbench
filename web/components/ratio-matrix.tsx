@@ -422,6 +422,19 @@ export function RatioMatrix({
           })}
         </tbody>
       </table>
+      <footer
+        className="hidden print:block print:break-inside-avoid mt-2 text-superscript text-text-secondary"
+      >
+        <span className="mr-3">
+          <span aria-hidden="true">△</span> regulatory threshold flag (red = breach, amber = watch)
+        </span>
+        <span className="mr-3">
+          <span aria-hidden="true">●</span> top / bottom quartile
+        </span>
+        <span>
+          <span aria-hidden="true">r</span> restated input
+        </span>
+      </footer>
     </div>
   );
 }
