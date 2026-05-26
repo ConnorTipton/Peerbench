@@ -69,8 +69,8 @@ MDRM prefixes. Within each schedule the prefix pair is:
   consolidated (foreign-office filers).
 
 Of the 5-bank sample, only First-Citizens (cert 11063) has foreign
-offices and populates the consolidated columns (`RCFAP859`, `RCFD1773`);
-the other 4 populate the domestic-only columns (`RCOAP859`, `RCON1773`). The schema map `cdr_schema.cdr_columns()` now returns a tuple
+offices and populates the consolidated columns (`RCFAP859`, `RCFD1771`);
+the other 4 populate the domestic-only columns (`RCOAP859`, `RCON1771`). The schema map `cdr_schema.cdr_columns()` now returns a tuple
 of candidate MDRMs per `(quarter, label)`. `cli.py:ingest_cdr` walks the
 tuple via `pick_first_non_empty(row, candidates)` and takes the first
 non-empty value per row. The post-Task-25 header check is preserved but
@@ -81,13 +81,15 @@ fails loudly.
 Schema map current state (2025-Q4):
 
 - `CET1_CAPITAL → ("RCOAP859", "RCFAP859")`
-- `HTM_FAIRVAL → ("RCFD1773", "RCON1773")`
+- `HTM_FAIRVAL → ("RCFD1771", "RCON1771")` (MDRM `1771` is RC-B
+  "Total securities, held-to-maturity, fair value". The original mapping
+  pointed at `1773`, which is the AFS carrying value — fixed 2026-05-25.)
 
 ### 3. Multi-file fan-in for RC-B (column-split)
 
 RC-B in 2025-Q4 ships as `Schedule RCB 12312025(1 of 2).txt` (4395 rows,
-242 columns including `RCFD1773` / `RCON1773`) + `(2 of 2).txt` (4395
-rows, 62 disjoint `RCONG*` memorandum-item columns). `_find_member`
+242 columns including the HTM fair-value columns `RCFD1771` / `RCON1771`)
++ `(2 of 2).txt` (4395 rows, 62 disjoint `RCONG*` memorandum-item columns). `_find_member`
 returned only the first match and emitted a warning; the post-Task-25
 strict header check then refused to read part 2 outright. `_find_members`
 (plural) now enumerates all matching members; `iter_schedule_rows`
@@ -111,13 +113,17 @@ Decimal end-to-end preserved.
   `src/peerbench/ingest/cdr_schema.py`.
 - **Suppressed for CBLR filers** via `ratio_defs.suppress_when = {"cblr": true}`.
 
-### `htm_loss_t1` — fully resolved (Task 25 + 2026-05-20 fix)
+### `htm_loss_t1` — fully resolved (Task 25 + 2026-05-20 fix + 2026-05-25 HTM MDRM correction)
 
 - **Status:** ok across the 5 banks × 8 quarters grid. Handler body
   `max(0, f["SCHA"] - f["CDR_HTM_FAIRVAL"]) / f["RBCT1J"]` unchanged.
-- **Source field:** FFIEC CDR Schedule RC-B Memorandum 2(d), MDRM `1773`
-  with domain-prefix candidates `RCFD1773` (consolidated; foreign-office
-  banks) and `RCON1773` (domestic only).
+- **Source field:** FFIEC CDR Schedule RC-B line 5 ("Total securities,
+  held-to-maturity, fair value"), MDRM `1771` with domain-prefix
+  candidates `RCFD1771` (consolidated; foreign-office banks) and
+  `RCON1771` (domestic only). Previously mapped to `1773`, which is the
+  AFS carrying value (Schedule RC-B "Available-for-Sale Securities") —
+  the bug silently floored htm_loss_t1 to 0% for every bank because
+  `SCHA (HTM book) − RCON1773 (AFS book)` is always negative.
 - **No FDIC pre-computed counterpart** — htm_loss_t1 is a post-SVB
   heuristic, not a regulator-published ratio. Validation success means
   `data_quality='ok'` for all 40 cells (it does not appear in the bp-diff

@@ -28,13 +28,22 @@ Maps only the 8 quarters Peerbench actively ingests (2024-Q1 through
 2025-Q4 as of 2026-05-20). Older quarters raise KeyError with a clear
 message — historical backfill is a Phase 3 concern.
 
-Empirical pinning (2026-05-20)
------------------------------
+Empirical pinning (2026-05-20, HTM fix 2026-05-25)
+--------------------------------------------------
 `P859` (CET1 capital amount) verified against Bank OZK (cert 110) live
 CDR ZIPs: `RCOAP859 / RWAJT = 11.7244%` matches FDIC `IDT1CER` exactly.
 Pre-CECL `RCOA8274` (Tier 1 capital amount) over-stated by 77 bps for
-banks with AT1 preferred stock (CET1 < Tier 1). `RCFD1773` (HTM fair
-value, RC-B Memo 2(d)) confirmed consolidated-domestic.
+banks with AT1 preferred stock (CET1 < Tier 1).
+
+`HTM_FAIRVAL` was originally mapped to MDRM `1773`, but Schedule RC-B
+labels `1773` as "AVAILABLE-FOR-SALE SECURITIES" — i.e. AFS carrying
+value, not HTM. The correct HTM fair value MDRM is `1771` (Schedule
+RC-B label "TOTL SECS-HELD-TO-MATRTY-FAIR VALUE"). The mistake floored
+`htm_loss_t1` to 0% for every bank because `SCHA (~$0.1–10B HTM book) -
+RCON1773 (~$5–30B AFS book)` was always negative, then floored. Verified
+2026-05-25 against First-Citizens (cert 11063) 2025-Q4: RCFD1771 =
+$8.488B HTM fair value vs SCHA $9.645B amortized cost → real $1.157B
+unrealized loss, ~5–6% of Tier 1.
 """
 
 from __future__ import annotations
@@ -69,13 +78,14 @@ _STABLE: dict[str, tuple[str, ...]] = {
     #   RCOAP859 — domestic-only filers (no foreign offices)
     #   RCFAP859 — filers with foreign offices (e.g. First-Citizens)
     "CET1_CAPITAL": ("RCOAP859", "RCFAP859"),
-    # RC-B Memorandum 2(d): HTM securities fair value, $. Domain split:
-    #   RCFD1773 — consolidated (foreign-office banks; equal to RCON1773
-    #              when foreign HTM is zero — e.g. First-Citizens reports
-    #              both as 31790000 in 2025-Q4)
-    #   RCON1773 — domestic only (the 4 of 5 sample banks without foreign
-    #              offices populate this and leave RCFD1773 blank)
-    "HTM_FAIRVAL": ("RCFD1773", "RCON1773"),
+    # RC-B line 5 ("Total securities, held-to-maturity, fair value"):
+    # HTM securities fair value, $. Domain split:
+    #   RCFD1771 — consolidated (foreign-office banks; e.g. First-Citizens
+    #              reports $8.488B in 2025-Q4 against $9.645B amortized cost)
+    #   RCON1771 — domestic only (the 4 of 5 sample banks without foreign
+    #              offices populate this and leave RCFD1771 blank)
+    # NEVER swap back to `1773` — that MDRM is AFS carrying value, not HTM.
+    "HTM_FAIRVAL": ("RCFD1771", "RCON1771"),
 }
 
 _OVERRIDES: dict[tuple[str, str], tuple[str, ...]] = {
@@ -116,3 +126,12 @@ def known_quarters() -> tuple[str, ...]:
 
 def known_labels() -> tuple[str, ...]:
     return tuple(_STABLE.keys())
+
+
+def known_keys() -> tuple[tuple[str, str], ...]:
+    """Every `(quarter, label)` pair the schema maps — `_STABLE` rows ×
+    `_QUARTERS`, plus every `_OVERRIDES` entry (which may include quarters
+    not in `_QUARTERS`). Use this when a regression test must assert a
+    property across every row the schema can return, including override
+    edits made for future quarters."""
+    return tuple(sorted(_SCHEMA))
