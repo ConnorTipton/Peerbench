@@ -13,12 +13,16 @@ from peerbench.ingest.cdr_schema import (
 )
 
 
-def test_all_8_quarters_resolve_all_labels() -> None:
-    """5 banks × 8 quarters is the validation grid; both labels must resolve."""
+def test_every_quarter_label_pair_resolves_to_nonempty_mdrm_tuple() -> None:
+    """Every (quarter, label) in the schema window must return at least one
+    MDRM candidate. No hardcoded counts — the schema grows as Phase 5
+    expansion adds RI / RC line items, and this test grows with it."""
     quarters = known_quarters()
-    assert len(quarters) == 8
     labels = known_labels()
-    assert set(labels) == {"CET1_CAPITAL", "HTM_FAIRVAL"}
+    assert len(quarters) >= 8, "schema should at least cover the Phase-1 8-quarter window"
+    assert "CET1_CAPITAL" in labels and "HTM_FAIRVAL" in labels, (
+        "Phase-1 legacy labels must remain present"
+    )
     for q in quarters:
         for lbl in labels:
             mdrms = cdr_columns(q, lbl)
@@ -26,7 +30,10 @@ def test_all_8_quarters_resolve_all_labels() -> None:
                 f"{q}/{lbl} -> {mdrms!r} must be a non-empty tuple"
             )
             for mdrm in mdrms:
-                assert mdrm.startswith(("RCO", "RCF")), (
+                # Schedule RI uses RIAD*; balance-sheet schedules use
+                # RCFD/RCON (consolidated/domestic) or RCFN/RCOA/RCFA
+                # variants depending on filer population.
+                assert mdrm.startswith(("RIAD", "RCO", "RCF", "RCN")), (
                     f"{q}/{lbl} -> {mdrm!r} doesn't look like an MDRM"
                 )
 

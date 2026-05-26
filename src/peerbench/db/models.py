@@ -103,6 +103,23 @@ class Ratio(Base):
     computed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class StatementLine(Base):
+    __tablename__ = "statement_lines"
+    __table_args__ = (CheckConstraint("schedule IN ('RI','RC')"),)
+
+    line_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    schedule: Mapped[str] = mapped_column(Text, nullable=False)
+    line_order: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    label: Mapped[str] = mapped_column(Text, nullable=False)
+    indent_depth: Mapped[int] = mapped_column(SmallInteger, nullable=False, default=0)
+    is_subtotal: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    parent_line_id: Mapped[str | None] = mapped_column(
+        Text, ForeignKey("statement_lines.line_id")
+    )
+    field_code: Mapped[str | None] = mapped_column(Text)
+    notes: Mapped[str | None] = mapped_column(Text)
+
+
 class QualityLog(Base):
     __tablename__ = "quality_log"
     __table_args__ = (

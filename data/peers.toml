@@ -1,0 +1,118 @@
+# Peerbench peer set — canonical source.
+#
+# Sibling of data/ratios.csv. Replaces the hard-coded cert list in
+# .github/workflows/daily-ingest.yml. `peerbench sync-peers` upserts these
+# rows into the `institutions` table; `peerbench list-peers` emits cert
+# arrays consumed by the ingest workflow.
+#
+# Anchor: exactly one peer must set anchor = true.
+# peer_tier = 1: head-to-head columns on the dashboard / statements view.
+# peer_tier = 2: distribution-only — contributes to a "Larger peer median"
+#                summary column, never selectable for head-to-head comparison.
+#                (See docs/handoffs notes on Phase 5 scope decisions.)
+#
+# Cert numbers resolved 2026-05-25 via scripts/resolve_certs.py against
+# FDIC /institutions; financial-filing-active confirmed via 2025-Q4
+# /financials (Synovus, Cadence, Comerica report ACTIVE=0 on /institutions
+# despite recent filings — appears to be stale FDIC metadata).
+
+[[peers]]
+cert      = 4063
+name      = "MidFirst Bank"
+state     = "OK"
+peer_tier = 1
+anchor    = true
+
+# --- Tier 1 head-to-head (12) ---
+
+[[peers]]
+cert      = 110
+name      = "Bank OZK"
+state     = "AR"
+peer_tier = 1
+
+[[peers]]
+cert      = 4214
+name      = "BOKF, National Association"
+state     = "OK"
+peer_tier = 1
+
+[[peers]]
+cert      = 11063
+name      = "First-Citizens Bank & Trust Company"
+state     = "NC"
+peer_tier = 1
+
+[[peers]]
+cert      = 5510
+name      = "Frost Bank"
+state     = "TX"
+peer_tier = 1
+
+[[peers]]
+cert      = 16835
+name      = "Prosperity Bank"
+state     = "TX"
+peer_tier = 1
+
+[[peers]]
+cert      = 11813
+name      = "Cadence Bank"
+state     = "MS"
+peer_tier = 1
+
+[[peers]]
+cert      = 9396
+name      = "Valley National Bank"
+state     = "NJ"
+peer_tier = 1
+
+[[peers]]
+cert      = 34383
+name      = "Texas Capital Bank"
+state     = "TX"
+peer_tier = 1
+
+[[peers]]
+cert      = 35583
+name      = "Pinnacle Bank"
+state     = "TN"
+peer_tier = 1
+
+[[peers]]
+cert      = 873
+name      = "Synovus Bank"
+state     = "GA"
+peer_tier = 1
+
+[[peers]]
+cert      = 24998
+name      = "Commerce Bank"
+state     = "MO"
+peer_tier = 1
+
+[[peers]]
+cert      = 11241
+name      = "Centennial Bank"
+state     = "AR"
+peer_tier = 1
+
+# --- Tier 2 distribution-only (3) ---
+
+[[peers]]
+cert      = 2270
+name      = "Zions Bancorporation, N.A."
+state     = "UT"
+peer_tier = 2
+
+[[peers]]
+cert      = 983
+name      = "Comerica Bank"
+state     = "TX"
+peer_tier = 2
+
+[[peers]]
+cert      = 4977
+name      = "First Horizon Bank"
+state     = "TN"
+peer_tier = 2

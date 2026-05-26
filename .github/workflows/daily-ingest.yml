@@ -1,15 +1,26 @@
 name: daily-ingest
 
-# Pulls the latest 8 quarters of FDIC BankFind data for the 5-bank Phase 1
-# slice (MidFirst + 4 peers) and recomputes ratios. Doubles as the Supabase
-# free-tier inactivity heartbeat — without this firing daily the project
-# pauses after 7 days.
+# Pulls the latest 8 quarters of FDIC BankFind data for every peer in
+# data/peers.toml and recomputes ratios. Doubles as the Supabase free-tier
+# inactivity heartbeat — without this firing daily the project pauses
+# after 7 days.
 #
-# CDR ingest is intentionally NOT included: the FFIEC bulk-download
-# endpoint is form-driven (ASP.NET VIEWSTATE) and cannot be automated; the
-# CdrClient raises CdrZipNotCachedError when ZIPs are missing. CDR fields
-# feed 2 of 30 ratios (cet1, htm_loss_t1) and refresh quarterly — see
-# docs/operations.md for the manual refresh procedure.
+# Peer set is sourced via `peerbench list-peers --tier all` (output of
+# data/peers.toml). To add or remove a peer, edit the TOML and rerun
+# `uv run peerbench sync-peers` — the workflow picks it up automatically.
+#
+# Trailing 8-quarter window is preserved (not extended to 24): historical
+# quarters are stable except for restatements, which FDIC publishes within
+# ~30 days of original filing (always inside the 8-quarter window). The
+# Phase 5.1 historical backfill to 2020-Q1 runs once via
+# `peerbench backfill` after manual ZIP placement (see docs/cdr-backfill.md).
+#
+# CDR ingest is intentionally NOT included in the daily run: the FFIEC
+# bulk-download endpoint is form-driven (ASP.NET VIEWSTATE) and cannot be
+# automated; the CdrClient raises CdrZipNotCachedError when ZIPs are
+# missing. CDR fields feed `cet1`, `htm_loss_t1`, and the /statements
+# view's Schedule RI / RC lines, and refresh quarterly — see
+# docs/operations.md "CDR ingest" for the manual refresh procedure.
 
 on:
   schedule:
@@ -42,15 +53,35 @@ jobs:
       - name: Install Python deps
         run: uv sync
 
-      - name: Ingest FDIC API facts (5 banks x 8 quarters)
+      - name: Sync peers from data/peers.toml
+        # Idempotent — keeps the `institutions` table aligned with the
+        # canonical TOML on every run so a peer added between cron firings
+        # gets its institution row created before ingest tries to write
+        # facts against the new cert (which would FK-violate otherwise).
+        run: uv run peerbench sync-peers
+
+      - name: Resolve peer cert list
+        # Compute once and fail loud if the list is empty (a malformed
+        # peers.toml would otherwise let the loop run zero iterations and
+        # exit 0 — silently green cron with no ingest).
+        id: peers
         run: |
-          for cert in 4063 4214 110 11063 5510; do
+          certs="$(uv run peerbench list-peers --tier all)"
+          if [ -z "$certs" ]; then
+            echo "list-peers returned no certs — peers.toml is malformed or empty" >&2
+            exit 1
+          fi
+          echo "certs=$certs" >> "$GITHUB_OUTPUT"
+
+      - name: Ingest FDIC API facts (8 quarters per peer)
+        run: |
+          for cert in ${{ steps.peers.outputs.certs }}; do
             uv run peerbench ingest --cert "$cert" --quarters 8
           done
 
       - name: Compute ratios
         run: |
-          for cert in 4063 4214 110 11063 5510; do
+          for cert in ${{ steps.peers.outputs.certs }}; do
             uv run peerbench compute --cert "$cert" --quarters 8
           done
 

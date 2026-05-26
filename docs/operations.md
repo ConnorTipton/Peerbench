@@ -10,7 +10,7 @@ Two scheduled GitHub Actions in `.github/workflows/`.
 
 | Workflow | When | What |
 | --- | --- | --- |
-| `daily-ingest.yml` | 03:00 UTC daily | `peerbench ingest` + `peerbench compute` for the 5-bank slice (4063, 4214, 110, 11063, 5510) across the last 8 quarters. Doubles as the Supabase 7-day inactivity heartbeat. |
+| `daily-ingest.yml` | 03:00 UTC daily | `peerbench ingest` + `peerbench compute` for every cert in `data/peers.toml` (16 banks as of Phase 5.1) across the last 8 quarters. Doubles as the Supabase 7-day inactivity heartbeat. |
 | `weekly-backup.yml` | Sunday 04:00 UTC | `pg_dump` of the live DB → gzipped → uploaded to a private GitHub release tagged `backup-YYYY-MM-DD`. Retains the 8 most recent backups. |
 
 ### Manual triggers
@@ -39,22 +39,63 @@ Daily ~1–2 min/run × 30 days plus the weekly backup ≈ 35–65 min/month. We
 
 The daily cron does **not** include `peerbench ingest-cdr`. FFIEC's public bulk-download endpoint at https://cdr.ffiec.gov/CDR/Public/CDRDownload.aspx is ASP.NET VIEWSTATE form-driven and can't be automated with a plain HTTP GET; the `CdrClient` raises `CdrZipNotCachedError` when ZIPs are missing.
 
-CDR data feeds 2 of 30 ratios (`cet1`, `htm_loss_t1`) and publishes quarterly. The manual refresh procedure:
+As of Phase 5.1, CDR data feeds 2 ratios (`cet1`, `htm_loss_t1`) plus
+~45 Schedule RI / RC line items rendered on the `/statements` view. The
+fields publish quarterly. The manual refresh procedure:
 
 1. Visit https://cdr.ffiec.gov/CDR/Public/CDRDownload.aspx
 2. Select "Subject Data Format" + the quarter you want (Call Reports publish ~30 days after quarter-end; restatements arrive on no fixed schedule)
 3. Download the ZIP, save it to `cache/cdr/YYYY-Qn.zip`
 4. Run locally:
    ```bash
-   uv run peerbench ingest-cdr --certs 4063,4214,110,11063,5510 --quarters 8
-   uv run peerbench compute --cert 4063 --quarters 8   # (and other certs)
+   uv run peerbench ingest-cdr --certs "$(uv run peerbench list-peers --tier all --sep ,)" --quarters 8
+   for cert in $(uv run peerbench list-peers --tier all); do
+     uv run peerbench compute --cert "$cert" --quarters 8
+   done
    ```
 5. Verify the validation gate still passes:
    ```bash
-   uv run peerbench validate --certs 4063,4214,110,11063,5510 --quarters 8
+   uv run peerbench validate --certs "$(uv run peerbench list-peers --tier all --sep ,)" --quarters 8
+   uv run peerbench validate-statements --cert 4063 --quarter 2025-Q4
    ```
 
-See `docs/cdr-ingest.md` for the schedule layout details and `docs/divergences.md` for ratio-by-ratio status.
+See `docs/cdr-ingest.md` for schedule-layout details, `docs/divergences.md`
+for ratio-by-ratio status, and `docs/cdr-backfill.md` for the one-time
+2020-2023 historical ingest that powers the `/statements` view's
+24-quarter history.
+
+## Peer management
+
+The peer set is the source-of-truth list of banks Peerbench ingests and
+renders on the dashboard. It lives in `data/peers.toml` — banker-editable,
+diffable, hand-reviewed.
+
+To add or remove a peer:
+
+1. Edit `data/peers.toml`. Add/remove a `[[peers]]` entry. Use
+   `scripts/resolve_certs.py` to look up FDIC cert numbers for new banks
+   (one-shot, committed, not re-run).
+2. Apply changes to the live DB:
+   ```bash
+   uv run peerbench sync-peers
+   ```
+   Idempotent: upserts `(cert, name, state, peer_tier)` on `institutions`.
+3. Backfill or refresh data for the new peer:
+   ```bash
+   uv run peerbench ingest --cert <NEW_CERT> --quarters 8
+   uv run peerbench ingest-cdr --certs <NEW_CERT> --quarters 8
+   uv run peerbench compute --cert <NEW_CERT> --quarters 8
+   ```
+4. The next daily cron picks up the new cert automatically (the workflow
+   reads from `peerbench list-peers` rather than a hard-coded list).
+
+Tier conventions:
+
+- `peer_tier = 1` — appears as a head-to-head column on the matrix and
+  `/statements` view. Tier-1 includes the anchor (MidFirst, cert 4063).
+- `peer_tier = 2` — distribution-only. Tier-2 banks contribute to a
+  "Larger peer median" summary column but are never selectable as
+  head-to-head columns. See `docs/handoffs` for the Phase 5 rationale.
 
 ## RLS rollback
 

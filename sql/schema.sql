@@ -108,3 +108,34 @@ CREATE OR REPLACE VIEW v_ratios_with_data
   FROM ratios
   WHERE value IS NOT NULL;
 GRANT SELECT ON v_ratios_with_data TO anon, authenticated;
+
+-- FFIEC Schedule RI / RC line hierarchy for the /statements view
+-- (Phase 5.1 — see sql/migrations/0004_statement_lines.sql). Source of
+-- truth for content: data/statement_lines.csv, seeded via
+-- `peerbench seed-statement-lines`.
+CREATE TABLE statement_lines (
+  line_id         TEXT PRIMARY KEY,
+  schedule        TEXT NOT NULL CHECK (schedule IN ('RI', 'RC')),
+  line_order      SMALLINT NOT NULL,
+  label           TEXT NOT NULL,
+  indent_depth    SMALLINT NOT NULL DEFAULT 0,
+  is_subtotal     BOOLEAN NOT NULL DEFAULT FALSE,
+  parent_line_id  TEXT REFERENCES statement_lines(line_id),
+  field_code      TEXT,
+  notes           TEXT
+);
+CREATE INDEX idx_statement_lines_schedule_order
+  ON statement_lines (schedule, line_order);
+
+ALTER TABLE statement_lines ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "dashboard_read" ON statement_lines FOR SELECT USING (true);
+
+CREATE OR REPLACE VIEW v_statement_lines_with_data
+  WITH (security_invoker = true) AS
+  SELECT line_id
+  FROM statement_lines
+  WHERE field_code IS NULL
+     OR field_code IN (SELECT DISTINCT field_code
+                       FROM facts
+                       WHERE value IS NOT NULL);
+GRANT SELECT ON v_statement_lines_with_data TO anon, authenticated;
