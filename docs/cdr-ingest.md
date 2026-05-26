@@ -7,11 +7,13 @@ BankFind API does not expose:
   MDRM `P859`. Domain candidates: `RCOAP859` (domestic-only filers),
   `RCFAP859` (filers with foreign offices). Schema map tries both and
   takes the first non-empty value per row.
-- **HTM securities fair value** — FFIEC CDR Schedule RC-B Memorandum 2(d),
-  MDRM `1773`. Domain candidates: `RCFD1773` (consolidated; foreign-office
-  banks), `RCON1773` (domestic only). RC-B ships split as `(1 of 2).txt`
-  + `(2 of 2).txt`; the parser fans in across both files and skips the
-  one that lacks the target column.
+- **HTM securities fair value** — FFIEC CDR Schedule RC-B line 5 ("Total
+  securities, held-to-maturity, fair value"), MDRM `1771`. Domain
+  candidates: `RCFD1771` (consolidated; foreign-office banks), `RCON1771`
+  (domestic only). RC-B ships split as `(1 of 2).txt` + `(2 of 2).txt`;
+  the parser fans in across both files and skips the one that lacks the
+  target column. (Earlier docs and code referenced MDRM `1773` here —
+  that is the AFS carrying value, not HTM; fixed 2026-05-25.)
 
 These come from the FFIEC's bulk Call Report download (Subject Data Format
 ZIPs). The bulk endpoint is a form-driven ASP.NET app — it requires
@@ -69,8 +71,9 @@ gap can be cross-checked).
 The MDRM candidates above are pinned in `src/peerbench/ingest/cdr_schema.py`
 and verified against the live 2025-Q4 ZIP on 2026-05-20 (Bank OZK matches
 FDIC `IDT1CER` exactly for `RCOAP859/RWAJT`; First-Citizens flows through
-RC-B's `RCFD1773` cleanly; the other 4 sample banks come through
-`RCON1773` via the multi-column fallback).
+RC-B's `RCFD1771` for HTM fair value — $8.488B vs $9.645B amortized cost,
+a real $1.157B unrealized loss; the other 4 sample banks come through
+`RCON1771` via the multi-column fallback).
 
 If FFIEC restructures a future quarter:
 
