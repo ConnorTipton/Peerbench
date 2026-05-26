@@ -1,14 +1,20 @@
 """Peerbench CLI.
 
 Commands:
-  peerbench seed-ratios        — Upsert data/ratios.csv into the ratio_defs table.
-  peerbench ingest             — Fetch FDIC API facts for a bank-quarter.
-  peerbench ingest-cdr         — Read FFIEC CDR ZIPs and upsert CDR_* fields.
-  peerbench compute            — Compute ratios for a bank-quarter and persist.
-  peerbench info               — Quick sanity dump of registry + config.
-  peerbench export             — Generate the Phase 4.2 Excel comp workbook.
-  peerbench upload-workbook    — Upload the workbook + manifest to Supabase Storage.
-  peerbench export-field-deps  — Regenerate the handler field-dependency JSON.
+  peerbench seed-ratios          — Upsert data/ratios.csv into ratio_defs.
+  peerbench sync-peers           — Upsert data/peers.toml into institutions.
+  peerbench list-peers           — Emit peer cert numbers (for shell loops).
+  peerbench seed-statement-lines — Upsert data/statement_lines.csv into statement_lines.
+  peerbench ingest               — Fetch FDIC API facts for a bank-quarter.
+  peerbench ingest-cdr           — Read FFIEC CDR ZIPs and upsert CDR_* fields.
+  peerbench backfill             — Historical ingest over a quarter range.
+  peerbench compute              — Compute ratios for a bank-quarter and persist.
+  peerbench validate             — Cross-check ratios against FDIC pre-computed.
+  peerbench validate-statements  — Spot-check facts against a truth-fixture JSON.
+  peerbench info                 — Quick sanity dump of registry + config.
+  peerbench export               — Generate the Phase 4.2 Excel comp workbook.
+  peerbench upload-workbook      — Upload the workbook + manifest to Supabase Storage.
+  peerbench export-field-deps    — Regenerate the handler field-dependency JSON.
 """
 
 from __future__ import annotations
@@ -114,6 +120,354 @@ def seed_ratios() -> None:
     )
 
 
+@app.command("sync-peers")
+def sync_peers() -> None:
+    """Upsert data/peers.toml into the `institutions` table.
+
+    Idempotent — run after editing peers.toml. Inserts new peers, updates
+    cert/name/state/peer_tier on existing rows. Does NOT touch the `active`
+    flag or fields populated by the FDIC ingest path (rssd, hq_city, etc.).
+    """
+    from peerbench.peer_config import load_peers
+
+    peers = load_peers()
+    with get_session() as session:
+        for peer in peers:
+            stmt = pg_insert(Institution).values(
+                cert=peer.cert,
+                name=peer.name,
+                state=peer.state,
+                peer_tier=peer.peer_tier,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["cert"],
+                set_={
+                    "name": stmt.excluded.name,
+                    "state": stmt.excluded.state,
+                    "peer_tier": stmt.excluded.peer_tier,
+                },
+            )
+            session.execute(stmt)
+    typer.echo(
+        f"sync-peers: upserted {len(peers)} institutions "
+        f"({sum(1 for p in peers if p.peer_tier == 1)} tier-1, "
+        f"{sum(1 for p in peers if p.peer_tier == 2)} tier-2)"
+    )
+
+
+@app.command("list-peers")
+def list_peers(
+    tier: Annotated[
+        str,
+        typer.Option("--tier", help="Which tier to list: 1, 2, or all"),
+    ] = "all",
+    sep: Annotated[
+        str,
+        typer.Option("--sep", help="Separator between cert numbers"),
+    ] = " ",
+) -> None:
+    """Emit peer cert numbers from data/peers.toml.
+
+    Consumed by .github/workflows/daily-ingest.yml to feed the ingest loop —
+    `for cert in $(uv run peerbench list-peers --tier 1)`.
+    Order matches peers.toml line order (anchor first).
+    """
+    from peerbench.peer_config import all_certs, tier1_certs, tier2_certs
+
+    if tier == "1":
+        certs = tier1_certs()
+    elif tier == "2":
+        certs = tier2_certs()
+    elif tier == "all":
+        certs = all_certs()
+    else:
+        typer.echo(f"--tier must be 1, 2, or all (got: {tier!r})", err=True)
+        raise typer.Exit(code=2)
+    typer.echo(sep.join(str(c) for c in certs))
+
+
+@app.command("seed-statement-lines")
+def seed_statement_lines() -> None:
+    """Upsert data/statement_lines.csv into the `statement_lines` table.
+
+    Idempotent — run after editing the CSV. Cross-checks that every
+    field_code referenced in the CSV exists in `CDR_FIELDS` (i.e. the
+    ingest pipeline will actually populate it) — refuses to seed otherwise.
+    """
+    import csv
+
+    from peerbench.db import StatementLine
+    from peerbench.fdic_fields import CDR_FIELDS
+
+    from peerbench.config import REPO_ROOT
+
+    csv_path = REPO_ROOT / "data" / "statement_lines.csv"
+    with csv_path.open() as fh:
+        rows: list[dict[str, str]] = [
+            {k: (v or "") for k, v in r.items() if k} for r in csv.DictReader(fh)
+        ]
+
+    cdr_set = set(CDR_FIELDS)
+    bad_codes = sorted(
+        {r["field_code"] for r in rows if r["field_code"] and r["field_code"] not in cdr_set}
+    )
+    if bad_codes:
+        typer.echo(
+            f"statement_lines.csv references field_codes not in CDR_FIELDS: {bad_codes}.\n"
+            "Add them to peerbench.ingest.cdr_schema._STABLE (and they will appear in CDR_FIELDS "
+            "via derived export) before seeding.",
+            err=True,
+        )
+        raise typer.Exit(code=2)
+
+    with get_session() as session:
+        for row in rows:
+            stmt = pg_insert(StatementLine).values(
+                line_id=row["line_id"],
+                schedule=row["schedule"],
+                line_order=int(row["line_order"]),
+                label=row["label"],
+                indent_depth=int(row.get("indent_depth") or 0),
+                is_subtotal=row["is_subtotal"].strip().upper() == "TRUE",
+                parent_line_id=row.get("parent_line_id") or None,
+                field_code=row.get("field_code") or None,
+                notes=row.get("notes") or None,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["line_id"],
+                set_={
+                    "schedule": stmt.excluded.schedule,
+                    "line_order": stmt.excluded.line_order,
+                    "label": stmt.excluded.label,
+                    "indent_depth": stmt.excluded.indent_depth,
+                    "is_subtotal": stmt.excluded.is_subtotal,
+                    "parent_line_id": stmt.excluded.parent_line_id,
+                    "field_code": stmt.excluded.field_code,
+                    "notes": stmt.excluded.notes,
+                },
+            )
+            session.execute(stmt)
+    typer.echo(
+        f"seed-statement-lines: upserted {len(rows)} rows "
+        f"({sum(1 for r in rows if r['schedule'] == 'RI')} RI, "
+        f"{sum(1 for r in rows if r['schedule'] == 'RC')} RC)"
+    )
+
+
+@app.command("backfill")
+def backfill(
+    start: Annotated[str, typer.Option("--start", help="Earliest quarter, e.g. 2020-Q1")],
+    end: Annotated[str, typer.Option("--end", help="Latest quarter, e.g. 2023-Q4")],
+    certs: Annotated[
+        str | None,
+        typer.Option(
+            "--certs",
+            help="Optional comma-separated certs (default: all peers from peers.toml)",
+        ),
+    ] = None,
+    skip_cdr: Annotated[
+        bool,
+        typer.Option("--skip-cdr", help="Only run FDIC API ingest; skip CDR for this run"),
+    ] = False,
+) -> None:
+    """Historical backfill of FDIC + FFIEC CDR data for a quarter range.
+
+    Loops over the inclusive quarter range and calls `ingest` (FDIC API)
+    and `ingest-cdr` (FFIEC CDR ZIPs) for each cert. Idempotent — re-runs
+    upsert and the restatement detector picks up any diffs.
+
+    Pre-requisite for CDR ingest: matching `cache/cdr/YYYY-Qn.zip` files
+    must be staged per docs/cdr-backfill.md. If a ZIP is missing, the CDR
+    step raises with manual-download instructions; FDIC API ingest is
+    unaffected.
+
+    Cert list defaults to all peers in data/peers.toml. Specify --certs
+    to backfill a subset (e.g. one new peer added mid-cycle).
+    """
+    from peerbench.peer_config import all_certs
+
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
+    cert_list = _parse_cert_list(certs) if certs else list(all_certs())
+    qids = _enumerate_quarter_range(start, end)
+    typer.echo(
+        f"backfill: certs={cert_list} ({len(cert_list)}) "
+        f"quarters={start}..{end} ({len(qids)} total) skip_cdr={skip_cdr}"
+    )
+
+    fields = list(all_fields())
+    with FdicClient() as fdic, get_session() as session:
+        for cert in cert_list:
+            _ensure_institution(session, cert, fdic)
+            on_diff = make_quality_log_callback(session)
+            for qid in qids:
+                _ensure_quarter(session, qid, source="fdic_api")
+                data = fdic.financials(cert, qid, fields)
+                for field_code, value in data.items():
+                    if value is None and session.get(Fact, (cert, qid, field_code)) is None:
+                        continue
+                    upsert_fact(session, cert, qid, field_code, value, on_diff=on_diff)
+            typer.echo(f"  fdic done: cert={cert} quarters={len(qids)}")
+
+    if skip_cdr:
+        typer.echo("backfill complete (CDR skipped)")
+        return
+
+    cdr_client = CdrClient()
+    with get_session() as session:
+        rssd_rows = session.execute(
+            select(Fact.cert, Fact.value)
+            .where(Fact.field_code == "RSSDID")
+            .where(Fact.cert.in_(cert_list))
+        ).all()
+        cert_for_rssd: dict[int, int] = {}
+        for cert_val, value in rssd_rows:
+            if value is None:
+                continue
+            cert_for_rssd[int(value)] = cert_val
+        on_diff = make_quality_log_callback(session)
+        for qid in qids:
+            _ensure_quarter(session, qid, source="ffiec_cdr")
+            for label in known_labels():
+                pattern = SCHEDULE_PATTERN[label]
+                candidates = cdr_columns(qid, label)
+                field_code = _cdr_field_code(label)
+                try:
+                    rows = cdr_client.iter_schedule_rows(
+                        qid,
+                        pattern,
+                        required_columns=((RSSD_COLUMN,), candidates),
+                    )
+                    for row in rows:
+                        rssd_raw = row.get(RSSD_COLUMN)
+                        if not rssd_raw:
+                            continue
+                        try:
+                            rssd = int(rssd_raw.strip())
+                        except ValueError:
+                            continue
+                        cert_val = cert_for_rssd.get(rssd)
+                        if cert_val is None:
+                            continue
+                        raw_value = pick_first_non_empty(row, candidates)
+                        value = coerce_cdr_value(raw_value)
+                        if value is None and session.get(Fact, (cert_val, qid, field_code)) is None:
+                            continue
+                        upsert_fact(session, cert_val, qid, field_code, value, on_diff=on_diff)
+                except CdrZipNotCachedError as e:
+                    typer.echo(f"  cdr skipped: {qid} ({e})", err=True)
+                    break
+            typer.echo(f"  cdr done: {qid}")
+    typer.echo(f"backfill complete: {len(cert_list)} certs × {len(qids)} quarters")
+
+
+def _enumerate_quarter_range(start: str, end: str) -> list[str]:
+    """Inclusive [start, end] quarter range; both args 'YYYY-Qn'."""
+    sy, sq = parse_quarter_id(start)
+    ey, eq = parse_quarter_id(end)
+    if (sy, sq) > (ey, eq):
+        msg = f"backfill range invalid: start {start!r} > end {end!r}"
+        raise ValueError(msg)
+    out: list[str] = []
+    y, q = sy, sq
+    while (y, q) <= (ey, eq):
+        out.append(f"{y}-Q{q}")
+        if q == 4:
+            y, q = y + 1, 1
+        else:
+            q += 1
+    return out
+
+
+@app.command("validate-statements")
+def validate_statements(
+    cert: Annotated[int, typer.Option("--cert", help="FDIC cert number to validate")],
+    quarter: Annotated[str, typer.Option("--quarter", help="Quarter id, e.g. 2025-Q4")],
+    fixture: Annotated[
+        str,
+        typer.Option(
+            "--fixture",
+            help="Path to truth-fixture JSON (default: tests/fixtures/<cert>_<quarter>_truth.json)",
+        ),
+    ] = "",
+    tolerance: Annotated[
+        int,
+        typer.Option(
+            "--tolerance",
+            help="Allowed delta in thousands of dollars (FFIEC reports in $k)",
+        ),
+    ] = 1,
+) -> None:
+    """Compare ingested statement-line facts against a hand-keyed truth fixture.
+
+    The fixture is a JSON file mapping `field_code` to an integer dollar
+    amount (in thousands, matching FFIEC convention). PASS = every fixture
+    value within --tolerance of the corresponding `facts.value`. Any miss
+    by more than --tolerance fails the gate.
+
+    Used in PR 1 as a "did we ingest the right MDRMs?" smoke test before
+    wiring the /statements view. Per the Phase 5.1 plan, fixture is
+    typically `tests/fixtures/midfirst_2025q4_truth.json` with ~15 spot
+    subtotals from the published Call Report.
+    """
+    import json
+
+    from peerbench.config import REPO_ROOT
+
+    fixture_path = (
+        Path(fixture)
+        if fixture
+        else REPO_ROOT / "tests" / "fixtures" / f"{cert}_{quarter.lower()}_truth.json"
+    )
+    if not fixture_path.exists():
+        typer.echo(f"truth fixture not found: {fixture_path}", err=True)
+        raise typer.Exit(code=2)
+    from typing import Any
+
+    truth_raw: Any = json.loads(fixture_path.read_text())
+    if not isinstance(truth_raw, dict):
+        typer.echo("fixture must be a JSON object mapping field_code -> value", err=True)
+        raise typer.Exit(code=2)
+    # Strip comment-style keys (e.g. "_README", "_NOTE") so fixtures can carry
+    # human-readable preambles without polluting the validation grid.
+    truth: dict[str, int] = {}
+    # truth_raw is Any (json result narrowed only to "is a dict"); explicit
+    # coercion below pins the (str, int) shape the validator requires.
+    raw_items: list[tuple[Any, Any]] = list(truth_raw.items())  # pyright: ignore[reportUnknownArgumentType]
+    for k_raw, v_raw in raw_items:
+        k = str(k_raw)
+        if k.startswith("_"):
+            continue
+        truth[k] = int(v_raw)
+
+    passed = 0
+    failed: list[tuple[str, int, int]] = []
+    missing: list[str] = []
+    with get_session() as session:
+        for field_code, expected in truth.items():
+            fact = session.get(Fact, (cert, quarter, field_code))
+            if fact is None or fact.value is None:
+                missing.append(field_code)
+                continue
+            actual = int(fact.value)
+            if abs(actual - expected) <= tolerance:
+                passed += 1
+            else:
+                failed.append((field_code, expected, actual))
+
+    typer.echo(f"validate-statements cert={cert} quarter={quarter}")
+    typer.echo(f"  {passed}/{len(truth)} within ±${tolerance}k tolerance")
+    if missing:
+        typer.echo(f"  MISSING in facts: {missing}", err=True)
+    if failed:
+        typer.echo("  MISMATCHES:", err=True)
+        for code, exp, got in failed:
+            typer.echo(f"    {code}: expected={exp!r} actual={got!r}", err=True)
+    if missing or failed:
+        raise typer.Exit(code=1)
+
+
 def _ensure_quarter(session, qid: str, source: str) -> None:
     existing = session.get(Quarter, qid)
     year, quarter = parse_quarter_id(qid)
@@ -192,10 +546,11 @@ def ingest(
     typer.echo(f"done: {written} fact upserts across {len(qids)} quarter(s)")
 
 
-_CDR_FIELD_CODE: dict[str, str] = {
-    "CET1_CAPITAL": "CDR_CET1_CAPITAL",
-    "HTM_FAIRVAL": "CDR_HTM_FAIRVAL",
-}
+def _cdr_field_code(label: str) -> str:
+    """Translate a `cdr_schema` label to the namespaced code stored in
+    `facts.field_code`. Convention: prepend `CDR_` so CDR-sourced facts
+    cannot collide with FDIC API codes when grepping the `facts` table."""
+    return f"CDR_{label}"
 
 
 def _parse_cert_list(certs: str) -> list[int]:
@@ -251,7 +606,7 @@ def ingest_cdr(
             for label in known_labels():
                 pattern = SCHEDULE_PATTERN[label]
                 candidates = cdr_columns(qid, label)
-                field_code = _CDR_FIELD_CODE[label]
+                field_code = _cdr_field_code(label)
                 seen = 0
                 matched_certs: set[int] = set()
                 try:

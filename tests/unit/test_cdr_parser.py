@@ -328,28 +328,27 @@ def test_pick_first_non_empty_walks_candidates() -> None:
 
 
 def test_pick_first_non_empty_warns_on_divergent_candidates(caplog) -> None:
-    """Empirically First-Citizens 2025-Q4 reports RCFD1773 == RCON1773 ==
-    31790000. If a future quarter ships divergent values for the two
-    candidates, surface a WARNING so the silent first-wins choice doesn't
-    mask a real reporting discrepancy."""
+    """If a future quarter ships divergent values for the two candidates,
+    surface a WARNING so the silent first-wins choice doesn't mask a real
+    reporting discrepancy."""
     from peerbench.ingest.cdr import pick_first_non_empty
 
-    row = {"IDRSSD": "12345", "RCFD1773": "31790000", "RCON1773": "31790001"}
+    row = {"IDRSSD": "12345", "RCFD1771": "8488000", "RCON1771": "8488001"}
     with caplog.at_level("WARNING", logger="peerbench.ingest.cdr"):
-        result = pick_first_non_empty(row, ("RCFD1773", "RCON1773"))
-    assert result == "31790000"
+        result = pick_first_non_empty(row, ("RCFD1771", "RCON1771"))
+    assert result == "8488000"
     assert any("Divergent" in rec.message for rec in caplog.records)
 
 
 def test_pick_first_non_empty_silent_when_candidates_agree(caplog) -> None:
-    """Equal non-empty candidates is the common case (e.g. First-Citizens
-    both 31790000). Should NOT warn — only divergence is suspicious."""
+    """Equal non-empty candidates is the common case. Should NOT warn —
+    only divergence is suspicious."""
     from peerbench.ingest.cdr import pick_first_non_empty
 
-    row = {"IDRSSD": "12345", "RCFD1773": "31790000", "RCON1773": "31790000"}
+    row = {"IDRSSD": "12345", "RCFD1771": "8488000", "RCON1771": "8488000"}
     with caplog.at_level("WARNING", logger="peerbench.ingest.cdr"):
-        result = pick_first_non_empty(row, ("RCFD1773", "RCON1773"))
-    assert result == "31790000"
+        result = pick_first_non_empty(row, ("RCFD1771", "RCON1771"))
+    assert result == "8488000"
     assert not any("Divergent" in rec.message for rec in caplog.records)
 
 

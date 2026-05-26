@@ -11,10 +11,16 @@ Two sources feed `facts`:
     prefix so they cannot collide with FDIC API codes when grepping the
     `facts` table. CDR ingest fills fields the FDIC API does not expose
     (e.g. CET1 capital dollar amount from RC-R Part I, HTM fair value
-    from RC-B Memorandum 2).
+    from RC-B Memorandum 2, Schedule RI / RC line items).
+
+`CDR_FIELDS` is derived once from `cdr_schema.known_labels()` (rather
+than hand-maintained) so adding a label to `_STABLE` in `cdr_schema.py`
+automatically extends the field set the ingest pipeline accepts.
 """
 
 from __future__ import annotations
+
+from peerbench.ingest.cdr_schema import known_labels as _cdr_known_labels
 
 # Institution metadata
 METADATA_FIELDS: tuple[str, ...] = (
@@ -101,11 +107,9 @@ PRECOMPUTED_RATIO_FIELDS: tuple[str, ...] = (
 )
 
 # FFIEC CDR fields — bulk-file sourced. Namespaced with `CDR_*` so they
-# never collide with FDIC API codes in `facts.field_code`.
-CDR_FIELDS: tuple[str, ...] = (
-    "CDR_CET1_CAPITAL",  # RC-R Part I: CET1 capital dollar amount (numerator for `cet1`)
-    "CDR_HTM_FAIRVAL",  # RC-B Memorandum 2: HTM fair value (paired with SCHA for `htm_loss_t1`)
-)
+# never collide with FDIC API codes in `facts.field_code`. Derived from
+# `cdr_schema.known_labels()`; see the module docstring for rationale.
+CDR_FIELDS: tuple[str, ...] = tuple(f"CDR_{label}" for label in _cdr_known_labels())
 
 
 def all_fields() -> tuple[str, ...]:

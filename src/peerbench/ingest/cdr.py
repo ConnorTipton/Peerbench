@@ -79,8 +79,10 @@ def pick_first_non_empty(row: dict[str, str], columns: tuple[str, ...]) -> str |
     If multiple candidates are non-empty with DIFFERENT raw values, the
     helper still returns the first (preference order wins) but emits a
     WARNING log so silent divergence between domain prefixes surfaces.
-    Empirically the two columns are equal when both populated (e.g.
-    First-Citizens 2025-Q4 reports `RCFD1773 = RCON1773 = 31790000`).
+    Empirically a bank populates one domain candidate and leaves the
+    other blank (e.g. First-Citizens 2025-Q4 reports HTM fair value as
+    `RCFD1771 = 8488000` and leaves `RCON1771` empty, since they file
+    on FFIEC Form 031 with foreign offices).
     """
     seen: list[tuple[str, str]] = []
     for col in columns:

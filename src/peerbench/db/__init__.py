@@ -8,6 +8,7 @@ from peerbench.db.models import (
     Quarter,
     Ratio,
     RatioDef,
+    StatementLine,
 )
 from peerbench.db.session import get_engine, get_session
 
@@ -19,6 +20,7 @@ __all__ = [
     "Quarter",
     "Ratio",
     "RatioDef",
+    "StatementLine",
     "get_engine",
     "get_session",
 ]

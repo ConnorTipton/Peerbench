@@ -1,0 +1,53 @@
+line_id,schedule,line_order,label,indent_depth,is_subtotal,parent_line_id,field_code,notes
+RI_INT_INC_HDR,RI,10,Interest income,0,FALSE,,,Schedule RI section header (no MDRM)
+RI_INT_LOANS,RI,20,Interest and fees on loans,1,FALSE,RI_INT_INC_HDR,CDR_RI_INT_LOANS,RIAD4010
+RI_INT_LEASE,RI,30,Income from lease financing,1,FALSE,RI_INT_INC_HDR,CDR_RI_INT_LEASE,RIAD4065
+RI_INT_DEPBAL,RI,40,Interest on balances due from depositories,1,FALSE,RI_INT_INC_HDR,CDR_RI_INT_DEPBAL,RIAD4115
+RI_INT_TRD,RI,50,Interest income from trading assets,1,FALSE,RI_INT_INC_HDR,CDR_RI_INT_TRD,RIAD4069
+RI_INT_FF,RI,60,Income on fed funds sold & securities purchased,1,FALSE,RI_INT_INC_HDR,CDR_RI_INT_FF,RIAD4020
+RI_INT_INC_TOT,RI,70,Total interest income,0,TRUE,,CDR_RI_INT_INC_TOT,RIAD4107 (subtotal)
+RI_INT_EXP_TOT,RI,80,Total interest expense,0,TRUE,,CDR_RI_INT_EXP_TOT,RIAD4073 (subtotal)
+RI_NET_INT_INC,RI,90,Net interest income,0,TRUE,,CDR_RI_NET_INT_INC,RIAD4074 (subtotal)
+RI_PROV,RI,100,Provision for credit losses,0,FALSE,,CDR_RI_PROV,RIADJJ33 (post-CECL)
+RI_NII_HDR,RI,110,Noninterest income,0,FALSE,,,Schedule RI section header
+RI_NII_SVCCHG,RI,120,Service charges on deposit accounts,1,FALSE,RI_NII_HDR,CDR_RI_NII_SVCCHG,RIAD4080
+RI_NII_FIDU,RI,130,Income from fiduciary activities,1,FALSE,RI_NII_HDR,CDR_RI_NII_FIDU,RIAD4070
+RI_NII_TRD,RI,140,Trading revenue,1,FALSE,RI_NII_HDR,CDR_RI_NII_TRD,RIADA220
+RI_NII_INVBK,RI,150,Investment banking & advisory fees,1,FALSE,RI_NII_HDR,CDR_RI_NII_INVBK,RIADC888
+RI_NII_TOT,RI,160,Total noninterest income,0,TRUE,,CDR_RI_NII_TOT,RIAD4079 (subtotal)
+RI_NIX_HDR,RI,170,Noninterest expense,0,FALSE,,,Schedule RI section header
+RI_NIX_SAL,RI,180,Salaries and employee benefits,1,FALSE,RI_NIX_HDR,CDR_RI_NIX_SAL,RIAD4135
+RI_NIX_PREM,RI,190,Expenses of premises and fixed assets,1,FALSE,RI_NIX_HDR,CDR_RI_NIX_PREM,RIAD4217
+RI_NIX_OTH,RI,200,Other noninterest expense,1,FALSE,RI_NIX_HDR,CDR_RI_NIX_OTH,RIAD4092
+RI_NIX_TOT,RI,210,Total noninterest expense,0,TRUE,,CDR_RI_NIX_TOT,RIAD4093 (subtotal)
+RI_PRETAX,RI,220,Income before applicable income taxes,0,TRUE,,CDR_RI_PRETAX,RIAD4301 (subtotal)
+RI_TAX,RI,230,Applicable income taxes,0,FALSE,,CDR_RI_TAX,RIAD4302
+RI_NET_INC,RI,240,Net income attributable to bank,0,TRUE,,CDR_RI_NET_INC,RIAD4340 (subtotal)
+RC_ASSETS_HDR,RC,300,Assets,0,FALSE,,,Schedule RC section header
+RC_CASH_NIB,RC,310,Noninterest-bearing cash and currency,1,FALSE,RC_ASSETS_HDR,CDR_RC_CASH_NIB,RCFD/RCON 0081
+RC_CASH_IB,RC,320,Interest-bearing balances due from depositories,1,FALSE,RC_ASSETS_HDR,CDR_RC_CASH_IB,RCFD/RCON 0071
+RC_SEC_HTM,RC,330,Held-to-maturity securities (amortized cost),1,FALSE,RC_ASSETS_HDR,CDR_RC_SEC_HTM,RCFD/RCON JJ34 (post-CECL)
+RC_SEC_AFS,RC,340,Available-for-sale securities (fair value),1,FALSE,RC_ASSETS_HDR,CDR_RC_SEC_AFS,RCFD/RCON 1773
+RC_FF_RESELL,RC,350,Securities purchased under agreements to resell,1,FALSE,RC_ASSETS_HDR,CDR_RC_FF_RESELL,RCFD/RCON B989
+RC_LOANS_HFS,RC,360,Loans and leases held for sale,1,FALSE,RC_ASSETS_HDR,CDR_RC_LOANS_HFS,RCFD/RCON 5369
+RC_LOANS_GROSS,RC,370,Loans and leases (net of unearned income),1,FALSE,RC_ASSETS_HDR,CDR_RC_LOANS_GROSS,RCFD/RCON B528
+RC_ACL,RC,380,Less: Allowance for credit losses,2,FALSE,RC_LOANS_GROSS,CDR_RC_ACL,RCFD/RCON 3123 (post-CECL nomenclature)
+RC_LOANS_NET,RC,390,Loans and leases (net of unearned income and ACL),1,FALSE,RC_ASSETS_HDR,CDR_RC_LOANS_NET,RCFD/RCON B529
+RC_PREMISES,RC,400,Premises and fixed assets,1,FALSE,RC_ASSETS_HDR,CDR_RC_PREMISES,RCFD/RCON 2145
+RC_INTANGIBLES,RC,410,Intangible assets,1,FALSE,RC_ASSETS_HDR,CDR_RC_INTANGIBLES,RCFD/RCON 2143
+RC_OTHER_ASSETS,RC,420,Other assets,1,FALSE,RC_ASSETS_HDR,CDR_RC_OTHER_ASSETS,RCFD/RCON 2160
+RC_TOTAL_ASSETS,RC,430,Total assets,0,TRUE,,CDR_RC_TOTAL_ASSETS,RCFD/RCON 2170 (subtotal)
+RC_LIAB_HDR,RC,500,Liabilities,0,FALSE,,,Schedule RC section header
+RC_DEP_NIB,RC,510,Noninterest-bearing deposits,1,FALSE,RC_LIAB_HDR,CDR_RC_DEP_NIB,RCON/RCFN 6631
+RC_DEP_IB,RC,520,Interest-bearing deposits,1,FALSE,RC_LIAB_HDR,CDR_RC_DEP_IB,RCON/RCFN 6636
+RC_DEP_TOTAL,RC,530,Total deposits,1,TRUE,RC_LIAB_HDR,CDR_RC_DEP_TOTAL,RCON/RCFN 2200 (subtotal)
+RC_OTHER_BORROW,RC,540,Other borrowed money,1,FALSE,RC_LIAB_HDR,CDR_RC_OTHER_BORROW,RCFD/RCON 3190
+RC_SUBORD,RC,550,Subordinated notes and debentures,1,FALSE,RC_LIAB_HDR,CDR_RC_SUBORD,RCFD/RCON 3200
+RC_OTHER_LIAB,RC,560,Other liabilities,1,FALSE,RC_LIAB_HDR,CDR_RC_OTHER_LIAB,RCFD/RCON 2930
+RC_TOTAL_LIAB,RC,570,Total liabilities,0,TRUE,,CDR_RC_TOTAL_LIAB,RCFD/RCON 2948 (subtotal)
+RC_EQUITY_HDR,RC,600,Equity capital,0,FALSE,,,Schedule RC section header
+RC_COMMON_STOCK,RC,610,Common stock,1,FALSE,RC_EQUITY_HDR,CDR_RC_COMMON_STOCK,RCFD/RCON 3230
+RC_SURPLUS,RC,620,Surplus,1,FALSE,RC_EQUITY_HDR,CDR_RC_SURPLUS,RCFD/RCON 3839 (paid-in capital)
+RC_RETAINED,RC,630,Retained earnings,1,FALSE,RC_EQUITY_HDR,CDR_RC_RETAINED,RCFD/RCON 3632 (undivided profits)
+RC_AOCI,RC,640,Accumulated other comprehensive income,1,FALSE,RC_EQUITY_HDR,CDR_RC_AOCI,RCFD/RCON B530
+RC_BANK_EQUITY,RC,650,Total bank equity capital,0,TRUE,,CDR_RC_BANK_EQUITY,RCFD/RCON 3210 (subtotal)

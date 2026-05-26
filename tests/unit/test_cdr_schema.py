@@ -7,17 +7,22 @@ import pytest
 from peerbench.ingest.cdr_schema import (
     SCHEDULE_PATTERN,
     cdr_columns,
+    known_keys,
     known_labels,
     known_quarters,
 )
 
 
-def test_all_8_quarters_resolve_all_labels() -> None:
-    """5 banks × 8 quarters is the validation grid; both labels must resolve."""
+def test_every_quarter_label_pair_resolves_to_nonempty_mdrm_tuple() -> None:
+    """Every (quarter, label) in the schema window must return at least one
+    MDRM candidate. No hardcoded counts — the schema grows as Phase 5
+    expansion adds RI / RC line items, and this test grows with it."""
     quarters = known_quarters()
-    assert len(quarters) == 8
     labels = known_labels()
-    assert set(labels) == {"CET1_CAPITAL", "HTM_FAIRVAL"}
+    assert len(quarters) >= 8, "schema should at least cover the Phase-1 8-quarter window"
+    assert "CET1_CAPITAL" in labels and "HTM_FAIRVAL" in labels, (
+        "Phase-1 legacy labels must remain present"
+    )
     for q in quarters:
         for lbl in labels:
             mdrms = cdr_columns(q, lbl)
@@ -25,7 +30,10 @@ def test_all_8_quarters_resolve_all_labels() -> None:
                 f"{q}/{lbl} -> {mdrms!r} must be a non-empty tuple"
             )
             for mdrm in mdrms:
-                assert mdrm.startswith(("RCO", "RCF")), (
+                # Schedule RI uses RIAD*; balance-sheet schedules use
+                # RCFD/RCON (consolidated/domestic) or RCFN/RCOA/RCFA
+                # variants depending on filer population.
+                assert mdrm.startswith(("RIAD", "RCO", "RCF", "RCN")), (
                     f"{q}/{lbl} -> {mdrm!r} doesn't look like an MDRM"
                 )
 
@@ -61,9 +69,31 @@ def test_cet1_has_both_domain_prefix_candidates() -> None:
 
 
 def test_htm_fairval_has_both_domain_prefix_candidates() -> None:
-    """RC-B Memo 2(d) HTM fair value also splits by domain: foreign-office
-    banks populate `RCFD1773` (consolidated), domestic-only banks populate
-    `RCON1773`. Empirically confirmed against the 2025-Q4 ZIP: only
-    First-Citizens (cert 11063) reports RCFD1773; the other 4 sample banks
-    use RCON1773."""
-    assert cdr_columns("2025-Q4", "HTM_FAIRVAL") == ("RCFD1773", "RCON1773")
+    """RC-B line 5 ("Total securities, held-to-maturity, fair value") splits
+    by domain: foreign-office banks populate `RCFD1771` (consolidated),
+    domestic-only banks populate `RCON1771`. Empirically confirmed against
+    the 2025-Q4 ZIP: First-Citizens (cert 11063) reports RCFD1771 = $8.488B
+    HTM fair value (vs $9.645B amortized cost = $1.157B unrealized loss);
+    the other 4 sample banks use RCON1771."""
+    assert cdr_columns("2025-Q4", "HTM_FAIRVAL") == ("RCFD1771", "RCON1771")
+
+
+def test_htm_fairval_not_mistaken_for_afs() -> None:
+    """Regression guard: MDRM `1773` in Schedule RC-B is labelled
+    "AVAILABLE-FOR-SALE SECURITIES" — it is the AFS carrying value, not HTM.
+    The original mapping pointed at `1773` and silently floored htm_loss_t1
+    to 0% for every bank because `SCHA (HTM book) - 1773 (AFS book)` is
+    always negative.
+
+    Iterate `known_keys()` (not just `known_quarters()`) so a hand-edit
+    to `_OVERRIDES` for a future quarter that reverts to `1773` also
+    trips this guard, not just edits inside the `_QUARTERS` window."""
+    for quarter, label in known_keys():
+        if label != "HTM_FAIRVAL":
+            continue
+        mdrms = cdr_columns(quarter, label)
+        assert "RCFD1773" not in mdrms, f"{quarter}: 1773 is AFS, not HTM"
+        assert "RCON1773" not in mdrms, f"{quarter}: 1773 is AFS, not HTM"
+        assert all(m.endswith("1771") for m in mdrms), (
+            f"{quarter}: HTM_FAIRVAL must use MDRM 1771, got {mdrms}"
+        )
