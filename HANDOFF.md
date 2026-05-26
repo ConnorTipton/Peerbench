@@ -1,10 +1,162 @@
-# Peerbench — handoff (post-PR-#25/#26 — tail follow-ups; project shipped)
+# Peerbench — handoff (post-2026-05-26 session — PR #27 + #28 open for Phase 5.1)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 (v1.3) before doing anything substantive.
 
 ## TL;DR
+
+- **Two PRs open, neither merged.** Reviewed by both the in-house `reviewer`
+  sub-agent and `/codex review` — both PASS. Awaiting Connor's review/merge.
+  - **PR #27 — `fix(cdr): map HTM_FAIRVAL to MDRM 1771 (was AFS 1773)`,
+    branch `fix/htm-fairval-mdrm`.** Surgical 6-file fix. Schedule RC-B
+    header labels MDRM `1773` as "AVAILABLE-FOR-SALE SECURITIES" — it's
+    AFS carrying value, NOT HTM fair value. The correct HTM fair value
+    MDRM is `1771` ("TOTL SECS-HELD-TO-MATRTY-FAIR VALUE"). The wrong
+    mapping silently floored `htm_loss_t1` to 0% for every bank because
+    `SCHA (HTM book) - RCON1773 (AFS book)` is always negative, then
+    floored to 0 by the handler's `max(0, …)`. Verified empirically against
+    `cache/cdr/2025-Q4.zip`: MidFirst RCON1771 = $89.6M vs SCHA $100.7M =
+    $11M loss; First-Citizens RCFD1771 = $8.488B vs SCHA $9.645B =
+    **$1.157B real HTM unrealized loss (~5–6% of Tier 1)** that the
+    current dashboard reports as 0%. Bank OZK = $0 (no HTM book, was
+    already 0). Handler body unchanged; the daily cron will surface
+    corrected values on next run via the existing restatement detector
+    (no manual recompute needed). Tests: 162 → 163 (added
+    `test_htm_fairval_not_mistaken_for_afs` regression guard iterating
+    `known_keys()` so a future `_OVERRIDES` revert to 1773 also fails).
+    Pyright clean. **MUST MERGE FIRST** (PR #28 was built on top via
+    `git merge fix/htm-fairval-mdrm` to keep schemas consistent; if #28
+    merges first, the precursor commit lands with it).
+  - **PR #28 — `feat(phase-5.1): peer expansion + CDR schema groundwork`,
+    branch `feature/phase-5.1-data-foundation`.** Phase 5.1 data foundation
+    for the upcoming `/statements` snapshot view. PIPELINE + SCHEMA ONLY —
+    no dashboard/UI changes (those land in PR #29 = Phase 5.2). Key deltas:
+    - Peer set 5 → 16 (anchor MidFirst + 12 tier-1 head-to-head + 3
+      tier-2 distribution-only) managed via `data/peers.toml` with strict
+      validation. Tier-2 (Zions, Comerica, First Horizon) never selectable
+      as head-to-head columns — they'll feed a "Larger peer median"
+      summary column in PR #29.
+    - CDR schema 2 → 48 labels covering Schedule RI (income statement,
+      `RIAD*` codes, no domain split) and Schedule RC (balance sheet,
+      `RCFD/RCON` pairs, plus `RCON/RCFN` for deposits — convention is
+      reversed for deposits). Every MDRM was empirically verified against
+      the 2025-Q4 cached ZIP header before commit.
+    - Historical window 8 → 24 quarters (2020-Q1 → 2025-Q4). Daily cron
+      keeps the trailing 8-quarter window; older 16 quarters get ingested
+      once via `peerbench backfill` after manual ZIP placement (see
+      `docs/cdr-backfill.md`).
+    - 5 new CLI subcommands: `sync-peers`, `list-peers`, `seed-statement-lines`,
+      `backfill`, `validate-statements`.
+    - `statement_lines` table (52-row hand-authored CSV: 24 RI + 28 RC
+      with `parent_line_id` tree, section headers, subtotals) + new
+      migration `0004` + `v_statement_lines_with_data` view + new
+      `StatementLine` SQLAlchemy model.
+    - 6 bidirectional contract tests asserting CSV ⇄ `CDR_FIELDS`
+      correspondence in BOTH directions (catches silent orphans both ways).
+    - `fdic_fields.CDR_FIELDS` is now derived from `cdr_schema.known_labels()`
+      via `tuple(f"CDR_{label}" for label in …)` — eliminates the
+      hand-maintained `_CDR_FIELD_CODE` dict that was a drift hazard.
+    - Workflow `.github/workflows/daily-ingest.yml` switched from
+      hard-coded 5-cert list to `peerbench list-peers --tier all`, with
+      a `sync-peers` step before ingest and an explicit empty-list guard
+      (was: malformed peers.toml would silently exit 0).
+    - Truth fixture `tests/fixtures/4063_2025-q4_truth.json` (15 MidFirst
+      Q4 2025 subtotals, seeded from cached ZIP; `_README` documents the
+      upgrade path to published Call Report values for stronger validation).
+    - New docs: `docs/cdr-backfill.md` (16-row download checklist),
+      `docs/operations.md` peer-management section.
+    - Tests: 179 pass + 1 pre-existing env-dependent integration failure.
+      Pyright clean to baseline (9 pre-existing errors in untouched code).
+- **Plan file still at** `/Users/connortipton/.claude/plans/phase-5-financial-synchronous-avalanche.md`.
+  3-PR split locked: 5.1 (this PR) → 5.2 (`/statements` snapshot view) →
+  5.3 (trend mode + common-size + RI-A + RI-B II). Start 5.2 after #28
+  merges and the post-merge user actions land (below).
+
+## Worktrees still on disk
+
+- `.worktrees/phase-5.1-data-foundation/` on branch `feature/phase-5.1-data-foundation`
+  (= PR #28). Has the precursor HTM fix merged in.
+- `.worktrees/fix-htm-fairval-mdrm/` on branch `fix/htm-fairval-mdrm` (= PR #27).
+- Both can be deleted (`git worktree remove`) after their PRs merge. If
+  starting Phase 5.2, create a new worktree from updated main; do NOT
+  reuse `.worktrees/phase-5.1-data-foundation/`.
+
+## Action required from Connor after #27 + #28 merge
+
+In order:
+1. **Merge PR #27 first** (clean linear history). Then merge PR #28 — its
+   branch was built on top, so the rebase is a no-op.
+2. Apply migration: `psql … -f sql/migrations/0004_statement_lines.sql`
+3. `uv run peerbench sync-peers` — creates institution rows for the 11
+   new banks (idempotent; safe to re-run).
+4. `uv run peerbench seed-statement-lines` — loads 52 statement_lines rows.
+5. **Manual ZIP downloads (16 quarters)** per `docs/cdr-backfill.md`.
+   This is the one heavy step; rest is fast. Then:
+   `uv run peerbench backfill --start 2020-Q1 --end 2023-Q4`
+6. Recompute ratios across the expanded peer set + extended window:
+   ```bash
+   for cert in $(uv run peerbench list-peers --tier all); do
+     uv run peerbench compute --cert "$cert" --quarters 24
+   done
+   ```
+7. Spot-validate: `uv run peerbench validate-statements --cert 4063 --quarter 2025-Q4`
+8. (Optional, stronger guarantee) Replace the seeded truth-fixture values
+   in `tests/fixtures/4063_2025-q4_truth.json` with hand-keyed numbers
+   from MidFirst's published 2025-Q4 Call Report PDF.
+9. Confirm next daily cron green with the new 16-bank peer set.
+
+## Notable in-flight findings worth carrying forward
+
+- **FDIC `ACTIVE` flag stale for 3 banks**: Synovus (873), Cadence (11813),
+  Comerica (983) all file fresh 2025-Q4 financials but `/institutions`
+  reports `ACTIVE: 0`. Documented in `peers.toml` comments. The
+  `institution_active()` helper in `src/peerbench/ingest/fdic.py:149`
+  exists but isn't called from any ingest path — so this doesn't block
+  ingestion today. **If you wire it as a gate later, those 3 banks would
+  be wrongly excluded.** Either special-case them or contact FDIC about
+  the stale flag.
+- **`Quarter.source` field is lossy** (pre-existing): `_ensure_quarter`
+  uses `if existing is None` guard, so when `ingest` runs first with
+  `source="fdic_api"` and `ingest-cdr` runs later with `source="ffiec_cdr"`
+  for the same `qid`, the second call is a no-op and `source` stays
+  `"fdic_api"` forever. Flagged by the reviewer agent during PR #28
+  review. Either drop the field (it doesn't track provenance accurately)
+  or compose into `"fdic_api+ffiec_cdr"`. Not blocking.
+- **Cross-model review agreement on PR #27**: Both `reviewer` sub-agent
+  and `/codex review` (GPT) found zero blockers. Codex agreed: "No
+  correctness issues were found in the diff. The MDRM mapping change is
+  consistent with the PR context, and the added regression coverage
+  checks the corrected HTM fair-value mapping." Reviewer's 3 soft
+  issues were all addressed before commit (docstring example refresh,
+  divergences.md ambiguity, regression test scope hardening via new
+  `known_keys()` helper).
+
+## Carried-over follow-ups (none block any DoD; all opt-in)
+
+1. **`cre_rbc_growth_36mo` pipeline ratio** (carried multiple sessions).
+   SR 07-1 §III.A 36-month growth gate.
+2. **Sentry-by-default env var split** (carried). Gate on explicit
+   `SENTRY_ENABLED` rather than `NODE_ENV === 'production'`.
+3. **Phase 4.3 follow-ups** (4 items — was 5; print legend footer closed
+   by PR #26): strip-plot width, collapsed-row expansion,
+   `break-after-avoid` tightening, screenshots binary footprint.
+4. **Phase 4.2 follow-ups** (5 items, all carried): suppressed-cell TS
+   quartile handling, field-deps JSON path, `Worksheet` typing pass,
+   `RATIO_ORDER` vs alpha-within-category, `_resolve_latest_quarter_id`
+   lex-MAX assumption.
+5. **Long-tail Schedule RI/RC line items** (new this session). PR #28
+   seeded ~46 high-value lines, intentionally not 200. Memorandum items
+   (RI-B Part II ACL rollforward, RI-A equity changes, RC-A through
+   RC-V breakdowns) defer to PR #29 / a possible 5.2.1 if useful for
+   the `/statements` view.
+6. **Truth fixture upgrade** (new this session). `tests/fixtures/4063_2025-q4_truth.json`
+   values are currently seeded from the cached ZIP (so `validate-statements`
+   only proves parser correctness). Upgrade by hand-keying values from
+   the published Call Report PDF for a stronger guarantee — see
+   the file's `_README` block for details.
+
+## Previous handoff (post-PR-#25/#26 — tail follow-ups; project shipped) — kept for context
 
 - **PR #25 merged at `51babb8` (2026-05-25) and PR #26 merged at `95633df`
   (same evening).** Two opt-in tail-end polish items off the Phase 4
@@ -1708,8 +1860,8 @@ open https://peerbench.sentry.io/projects/peerbench-web/
 
 ## Today's date
 
-2026-05-22 (evening session). Most recent finalized quarter (90-day
-publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
+2026-05-26. Most recent finalized quarter (90-day publication latency)
+is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## User context / preferences
 
@@ -1731,29 +1883,43 @@ publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## Recommended first action
 
-**All phases (1, 2, 3, 4.2, 4.3, 4.4) are DoD-complete.** The matrix
-renders 29 ratios (was 30 before the `top_loan_cat` hide in PR #23)
-via the `v_ratios_with_data` view (PR #25) with sort, collapse, heat
-map, regulatory flags, cell-context tooltips, per-ratio drilldown, and
-print-to-PDF (with a legend footer for `△ ● r` indicators on paper —
-PR #26); the daily ingest cron runs green (7/7 over 4 calendar days,
-cleared the Phase 3 ≥3-day gate); the Excel comp workbook (15 sheets)
-generates + uploads to Supabase Storage on every cron; the dashboard
-surfaces a workbook download link with a freshness subtitle; the
-print path produces letter-size PDFs with full thead repeats and
-Recharts color preservation; README + ARCHITECTURE.md + live
-screenshots + Loom script all landed in PR #24.
+**Check PR status first.** PRs #27 (HTM fix) and #28 (Phase 5.1 data
+foundation) were open at end-of-session and both passed cross-model
+review (`reviewer` sub-agent + `/codex review`).
+
+- If **neither merged yet**: ask Connor whether he wants you to wait
+  for review feedback, address any merge-blocking comments, or move
+  the conversation to something else (e.g. an unrelated polish item).
+  Do not auto-merge.
+- If **#27 merged but #28 still open**: nothing to do until #28 lands.
+  Do not start Phase 5.2 work on top of unmerged 5.1.
+- If **both merged**: walk Connor through the post-merge action list
+  (see "Action required from Connor after #27 + #28 merge" in the TL;DR
+  above). The heavy step is the 16-quarter manual ZIP download for the
+  historical backfill — that's user-action-only, not something you can
+  do.
+- If **both merged AND post-merge actions complete**: Phase 5.2 is the
+  next logical step (snapshot `/statements` view). Plan is locked at
+  `/Users/connortipton/.claude/plans/phase-5-financial-synchronous-avalanche.md`.
+  Confirm scope with Connor before starting — don't auto-pick 5.2 if he
+  hasn't asked for it.
+
 **Phase 4.1 (LLM insights) is explicitly deferred** (see memory
 `project-phase-4-1-deferred`). **The Loom recording is explicitly
-declined** by Connor and is not a TODO — `docs/loom-script.md` stays
-in-repo as a narrative walkthrough doc (see memory `feedback-no-loom`).
+declined** by Connor and is not a TODO (see memory `feedback-no-loom`).
+Do not re-raise either.
 
-### No active blocker — project is feature-complete against PLAN.md v1.3
+### Project status
 
-There is no "next step" the project requires. Open follow-ups below are
-all opt-in polish. If the user asks "what's next," present them as
-options rather than picking one — and do not re-raise the Loom or
-Phase 4.1 insights.
+Phase 1–4 all DoD-complete (matrix + drilldown + Excel + cron + docs
+all shipped via prior PRs). Phase 5 (the `/statements` financial-statement
+comparison view) is the active work, split into 3 PRs per the locked plan:
+- **5.1 (PR #28)** — data foundation: peers + CDR schema + table + CLI.
+  THIS SESSION.
+- **5.2 (next)** — `/statements` snapshot view: route + components +
+  query layer.
+- **5.3 (after 5.2 ships)** — trend mode, common-size toggle, RI-A,
+  RI-B Part II.
 
 ### Deferred (don't auto-pick)
 
