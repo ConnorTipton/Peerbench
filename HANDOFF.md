@@ -1,4 +1,4 @@
-# Peerbench — handoff (post-PR-#23/#24 — QA pass + Phase 4.4 docs)
+# Peerbench — handoff (post-PR-#25/#26 — tail follow-ups; project shipped)
 
 You are continuing work on Peerbench, Connor's FP&A internship-prep project
 at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
@@ -6,8 +6,62 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
 
 ## TL;DR
 
+- **PR #25 merged at `51babb8` (2026-05-25) and PR #26 merged at `95633df`
+  (same evening).** Two opt-in tail-end polish items off the Phase 4
+  follow-up board. The project is feature-complete against `PLAN.md` v1.3.
+  - **PR #25 (`v_ratios_with_data` view, fix-branch).** Replaces the
+    matrix's "ratios with any non-null value" presence filter with a
+    server-side `SELECT DISTINCT` via a new `WITH (security_invoker =
+    true)` Postgres view. Caps the wire response at ~30 rows regardless
+    of how many `ratios` rows exist (~1.1k today, ~150/quarter growth),
+    retiring the `.limit(50000)` safety cap in `getMatrixData`.
+    Surfaced by the PR #23 reviewer. Files: `sql/migrations/0003_v_ratios_with_data.sql`
+    (new), `sql/schema.sql` (mirror), `web/lib/queries.ts` (switch the
+    `.from("ratios")` presence query to `.from("v_ratios_with_data")`).
+    Migration applied to live Supabase via MCP; `SELECT COUNT(*)`
+    returned 29 (matches the live matrix). 156 vitest + 162 pytest
+    passing, `npx tsc --noEmit` clean. Reviewer sub-agent PASS, 0
+    blockers; 2 soft issues both turned out to be the existing project
+    pattern (migrations use `public.` qualifier, schema.sql is
+    unqualified — checked against migrations 0001/0002, no actual drift).
+  - **PR #26 (print legend footer, chore-branch).** Adds a print-only
+    `<footer>` below the matrix listing the symbol legend: △
+    regulatory threshold flag (red = breach, amber = watch), ● top /
+    bottom quartile, r restated input. On screen the symbols carry
+    hover tooltips; on paper the tooltips disappear, so a printed PDF
+    could leave a reader guessing. Footer uses Tailwind v4's
+    `hidden print:block print:break-inside-avoid`; outer `aria-hidden`
+    dropped after reviewer feedback so the legend text remains in the
+    AX tree for printed-then-shared-back flows (only the bare glyphs
+    are decorative). Closes the PR #22 design-critic soft finding
+    (Phase 4.3 deferred follow-up #1). Verified via headless Chrome
+    print-PDF on page 2 below the last data row. Reviewer sub-agent
+    PASS, 0 blockers; 3 soft issues all applied in amend
+    (redundant outer `aria-hidden` dropped, `print:break-inside-avoid`
+    added, △ red-vs-amber disambiguated in the label).
+- **All phases (1, 2, 3, 4.2, 4.3, 4.4) remain DoD-complete.** Nothing
+  in this session moved a DoD line — both PRs were opt-in polish on
+  already-shipped surface area. Don't auto-pick more polish.
+- **Phase 4.1 (LLM insights) remains deferred** (memory
+  `project-phase-4-1-deferred`). **Loom recording remains declined**
+  (memory `feedback-no-loom`). Do not raise either as next-steps.
+- **Open follow-ups after this session** (none block any DoD; all opt-in):
+  1. **`cre_rbc_growth_36mo` pipeline ratio** (carried). SR 07-1 §III.A
+     36-month growth gate.
+  2. **Sentry-by-default env var split** (carried). Gate on explicit
+     `SENTRY_ENABLED` rather than `NODE_ENV === 'production'`.
+  3. **Phase 4.3 follow-ups** (4 items — was 5; print legend footer
+     closed by PR #26): strip-plot width, collapsed-row expansion,
+     `break-after-avoid` tightening, screenshots binary footprint.
+  4. **Phase 4.2 follow-ups** (5 items, all carried): suppressed-cell
+     TS quartile handling, field-deps JSON path, `Worksheet` typing
+     pass, RATIO_ORDER vs alpha-within-category,
+     `_resolve_latest_quarter_id` lex-MAX assumption.
+
+## Previous handoff (post-PR-#23/#24 — QA pass + Phase 4.4 docs) — kept for context
+
 - **PR #23 merged at `760acb6` (2026-05-25) and PR #24 merged at `ff5706c`
-  (same evening).** Today's session was a QA / verification pass followed by
+  (same evening).** That session was a QA / verification pass followed by
   one bug fix (PR #23) and the Phase 4.4 docs deliverable (PR #24).
   - **QA pass (report-only).** Walked the full surface area via Supabase MCP,
     `gh` CLI, and gstack `/browse`: daily-ingest cron (7/7 success across
@@ -77,11 +131,14 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
   the 7/7 daily-ingest streak observed during the QA pass cleanly
   satisfies the "≥ 3 consecutive days" DoD bullet. Phase 3 is now
   fully DoD-complete.
-- **Phase 4.4 is one Loom recording away from DoD-complete.** All
-  written deliverables landed (README, ARCHITECTURE.md, screenshots,
-  Loom script). Remaining: Connor records the Loom from
-  `docs/loom-script.md`, then drops the URL into README's "Live demo"
-  section (one-line follow-up commit).
+- **Phase 4.4 is DoD-complete.** Closed on written deliverables alone:
+  README, ARCHITECTURE.md, screenshots, and `docs/loom-script.md` as a
+  *written* walkthrough doc. Connor declined the screen-recording step
+  on 2026-05-25 ("I do not want to do this step. I don't care about
+  creating a video"). Do not re-raise the Loom recording as a next-step
+  in future sessions. See memory `feedback-no-loom`. The script in
+  `docs/loom-script.md` stays in-repo as a narrative artifact and is
+  ready to record against if Connor ever changes his mind.
 - **Phase 4.1 (LLM insights) remains deferred.** Per the prior
   conversation Connor wanted core features verified before adding the
   LLM layer; today's QA pass + fix completes that verify-first step,
@@ -94,15 +151,14 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
      ratio_id FROM ratios WHERE value IS NOT NULL`, then
      `supabase.from("v_ratios_with_data").select("ratio_id")`. Caps
      wire response at ~30 rows max. Migration + 1-line code change.
-  2. **Loom recording + URL drop into README.** Phase 4.4 closer.
-  3. **`cre_rbc_growth_36mo` pipeline ratio** (carried from prior
+  2. **`cre_rbc_growth_36mo` pipeline ratio** (carried from prior
      handoff). SR 07-1 §III.A 36-month growth gate.
-  4. **Sentry-by-default env var split** (carried). Gate on explicit
+  3. **Sentry-by-default env var split** (carried). Gate on explicit
      `SENTRY_ENABLED` rather than `NODE_ENV === 'production'`.
-  5. **Phase 4.3 follow-ups** (5 items carried from prior handoff):
+  4. **Phase 4.3 follow-ups** (5 items carried from prior handoff):
      print legend footer, strip-plot width, collapsed-row expansion,
      `break-after-avoid` tightening, screenshots binary footprint.
-  6. **Phase 4.2 follow-ups** (5 items carried): suppressed-cell TS
+  5. **Phase 4.2 follow-ups** (5 items carried): suppressed-cell TS
      quartile handling, field-deps JSON path, `Worksheet` typing pass,
      RATIO_ORDER vs alpha-within-category, `_resolve_latest_quarter_id`
      lex-MAX assumption.
@@ -116,8 +172,7 @@ at `/Users/connortipton/Projects/Peerbench`. Read `CLAUDE.md` and `PLAN.md`
     expected for the FDIC publication cadence.
   - Cold-load p99 on the matrix is 2.7 s (Vercel Hobby serverless
     cold start). Warm path is 374 ms. Phase 2 DoD claim of "<1 s" is
-    defensible on warm only; if needed for the Loom recording, hit
-    the URL once to warm before recording.
+    defensible on warm only.
 
 ## Previous handoff (post-PR-#21/#22 — Phase 4.3 banking design pass complete) — kept for context
 
@@ -1676,31 +1731,29 @@ publication latency) is **2025-Q4** (`report_date = 2025-12-31`).
 
 ## Recommended first action
 
-**Phase 1 / Phase 2 / Phase 3 / Phase 4.2 / Phase 4.3 are all DoD-complete.**
-The matrix renders 29 ratios (was 30 before the `top_loan_cat` hide in
-PR #23) with sort, collapse, heat map, regulatory flags, cell-context
-tooltips, per-ratio drilldown, and print-to-PDF; the daily ingest cron
-runs green (7/7 over 4 calendar days, cleared the Phase 3 ≥3-day gate);
-the Excel comp workbook (15 sheets) generates + uploads to Supabase
-Storage on every cron; the dashboard surfaces a workbook download link
-with a freshness subtitle; the print path produces letter-size PDFs
-with full thead repeats and Recharts color preservation; README +
-ARCHITECTURE.md + live screenshots + Loom script all landed in PR #24.
-**Phase 4.4 is one Loom recording away from DoD-complete.**
+**All phases (1, 2, 3, 4.2, 4.3, 4.4) are DoD-complete.** The matrix
+renders 29 ratios (was 30 before the `top_loan_cat` hide in PR #23)
+via the `v_ratios_with_data` view (PR #25) with sort, collapse, heat
+map, regulatory flags, cell-context tooltips, per-ratio drilldown, and
+print-to-PDF (with a legend footer for `△ ● r` indicators on paper —
+PR #26); the daily ingest cron runs green (7/7 over 4 calendar days,
+cleared the Phase 3 ≥3-day gate); the Excel comp workbook (15 sheets)
+generates + uploads to Supabase Storage on every cron; the dashboard
+surfaces a workbook download link with a freshness subtitle; the
+print path produces letter-size PDFs with full thead repeats and
+Recharts color preservation; README + ARCHITECTURE.md + live
+screenshots + Loom script all landed in PR #24.
+**Phase 4.1 (LLM insights) is explicitly deferred** (see memory
+`project-phase-4-1-deferred`). **The Loom recording is explicitly
+declined** by Connor and is not a TODO — `docs/loom-script.md` stays
+in-repo as a narrative walkthrough doc (see memory `feedback-no-loom`).
 
-### Active: Loom recording (closes Phase 4.4)
+### No active blocker — project is feature-complete against PLAN.md v1.3
 
-1. **Record the Loom from `docs/loom-script.md`.** Script has beat-by-beat
-   timing (5 min target), screen directions, and full narration.
-   Pre-recording setup: warm the dashboard with one fetch (cold-load is
-   2.7 s on Vercel Hobby — warm path is 374 ms and stays cached for
-   the duration of the recording); browser at 1440×900 to match the
-   committed screenshots; second tab on the GitHub repo for the
-   engineering-tour beat at 3:40.
-2. **Drop the Loom URL into README.md.** One-line follow-up commit:
-   replace the `[peerbench-web.vercel.app](...)` reference under
-   "Live demo" with the Loom link, or add a "Walkthrough" bullet next
-   to it. `docs/loom-script.md:111` notes this as the only README TODO.
+There is no "next step" the project requires. Open follow-ups below are
+all opt-in polish. If the user asks "what's next," present them as
+options rather than picking one — and do not re-raise the Loom or
+Phase 4.1 insights.
 
 ### Deferred (don't auto-pick)
 
@@ -1715,16 +1768,8 @@ ARCHITECTURE.md + live screenshots + Loom script all landed in PR #24.
 
 ### Phase 4 follow-ups from earlier work (also tracked)
 
-None block Phase 4.4. Pick into a future refactor pass when relevant.
+None block any phase DoD. Pick into a future refactor pass when relevant.
 
-- **`v_ratios_with_data` Postgres view** (new — surfaced by PR #23
-  reviewer). Replace the `.limit(50000)` safety cap in
-  `web/lib/queries.ts:118` with a server-side DISTINCT view. Migration
-  + 1-line code change. Caps the wire response on the matrix's
-  presence-filter query at ~30 rows regardless of how many
-  cert/quarter/ratio combinations exist. Not biting today (1100
-  non-null rows, Supabase project doesn't enforce the default 1k
-  cap) but the architecturally correct fix.
 - **`cre_rbc_growth_36mo` pipeline ratio** (locked Sprint 2 PR-D
   deferral). SR 07-1 §III.A 36-month growth gate. Compute trailing
   growth in the pipeline (not TS) and persist as a new ratio so the
@@ -1735,13 +1780,18 @@ None block Phase 4.4. Pick into a future refactor pass when relevant.
   `NEXT_PUBLIC_SENTRY_DSN`. The intent of the deferred follow-up is
   probably to unify gating on an explicit `SENTRY_ENABLED` env var
   rather than `NODE_ENV === 'production'`. Small, isolated change.
-- **Phase 4.3 follow-ups** (5 items listed in the prior handoff TL;DR
-  above) — print legend footer, strip-plot width, collapsed-row
-  expansion, break-after-avoid tightening, screenshots binary footprint.
+- **Phase 4.3 follow-ups** (4 items — was 5; print legend footer
+  closed by PR #26): strip-plot width, collapsed-row expansion,
+  `break-after-avoid` tightening, screenshots binary footprint.
 - **Phase 4.2 follow-ups** (5 items listed in earlier handoffs) —
   suppressed-cell TS quartile handling, field-deps JSON path,
   `Worksheet` typing pass, RATIO_ORDER vs alpha-within-category,
   `_resolve_latest_quarter_id` lex-MAX assumption.
+
+### Closed by this session
+
+- ~~`v_ratios_with_data` Postgres view~~ → PR #25 (`51babb8`).
+- ~~Phase 4.3 follow-up #1 (print legend footer)~~ → PR #26 (`95633df`).
 
 ### QA pass observations (context, not action items)
 
