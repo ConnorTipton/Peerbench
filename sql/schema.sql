@@ -98,3 +98,13 @@ CREATE INDEX IF NOT EXISTS facts_quarter_id_idx
   ON facts (quarter_id);
 CREATE INDEX IF NOT EXISTS institutions_acquired_by_idx
   ON institutions (acquired_by);
+
+-- Server-side DISTINCT for the matrix's "ratios with any non-null value"
+-- presence filter (Phase 4 follow-up — see sql/migrations/0003_v_ratios_with_data.sql).
+-- security_invoker = true so anon-role RLS on `ratios` still applies.
+CREATE OR REPLACE VIEW v_ratios_with_data
+  WITH (security_invoker = true) AS
+  SELECT DISTINCT ratio_id
+  FROM ratios
+  WHERE value IS NOT NULL;
+GRANT SELECT ON v_ratios_with_data TO anon, authenticated;
